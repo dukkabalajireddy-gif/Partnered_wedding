@@ -20,7 +20,69 @@ interface Thread {
 interface WeddingPlan {
   name: string; partnerName: string; date: string;
   location: string; budget: number; guestCount: number;
+  rituals: string[];
 }
+
+// ─── Rituals (grouped by tradition; the same ritual can appear in more than one group) ───
+
+const RITUAL_GROUPS: { title: string; items: string[] }[] = [
+  { title: "Popular across India", items: ["Roka", "Engagement / Sagai", "Haldi", "Mehndi", "Sangeet", "Baraat", "Wedding Ceremony", "Reception", "Vidaai"] },
+  { title: "North Indian & Punjabi", items: ["Chunni Chadai", "Chooda Ceremony", "Kalire", "Jaggo", "Ghodi Chadhna", "Milni", "Jaimala / Varmala", "Pheras", "Kanyadaan", "Sindoor Daan", "Griha Pravesh", "Pag Phere"] },
+  { title: "Rajasthani, Marwari & Gujarati", items: ["Mayra / Bhaat", "Gol Dhana", "Pithi Dastoor", "Grah Shanti Puja", "Mandap Muhurat", "Madhuparka", "Antarpat", "Garba / Dandiya Night"] },
+  { title: "Bengali", items: ["Aiburobhat", "Gaye Holud", "Dodhi Mangal", "Bor Boron", "Subho Drishti", "Saat Paak", "Sindoor Khela", "Bou Bhaat"] },
+  { title: "South Indian", items: ["Nischayathartham", "Pandhal Kaal", "Kasi Yatra", "Oonjal", "Mangalyadharanam / Muhurtham", "Saptapadi", "Pellikuthuru", "Nalugu", "Thali Kettu", "Maalai Maatral", "Snatakam"] },
+  { title: "Maharashtrian", items: ["Sakhar Puda", "Kelvan", "Halad Chadavne", "Simant Pujan", "Lagna", "Satyanarayan Puja"] },
+  { title: "Muslim", items: ["Mangni", "Manjha", "Dholki", "Sanchaq", "Nikah", "Rukhsati", "Walima", "Chauthi"] },
+  { title: "Sikh", items: ["Kurmai", "Maiyan", "Anand Karaj", "Doli"] },
+  { title: "Christian", items: ["Betrothal / Banns", "Bridal Shower", "Roce", "Church Wedding", "Cake Cutting"] },
+  { title: "Parsi", items: ["Adravu / Adarni", "Achumichu", "Madavsaro", "Lagan", "Jashan"] },
+  { title: "Modern add-ons", items: ["Cocktail Night", "Bachelor / Bachelorette", "Pre-wedding Shoot", "Kirtan / Jagrata", "Welcome Dinner"] },
+];
+
+// ─── Vendor detail (demo data derived from the vendor; replace with real data later) ───
+
+function slugify(s: string) { return s.toLowerCase().replace(/[^a-z0-9]+/g, "").slice(0, 20); }
+
+// Ballpark cost of a 3-day celebration, by category and price tier (₹ → ₹₹₹₹)
+const THREE_DAY_BASE: Record<Category, number[]> = {
+  attire:      [150000, 300000, 600000, 1200000],
+  decoration:  [200000, 400000, 800000, 1500000],
+  photography: [150000, 250000, 450000, 800000],
+  hotels:      [400000, 900000, 1800000, 3500000],
+  transport:   [100000, 200000, 400000, 700000],
+  music:       [100000, 200000, 450000, 900000],
+  gifts:       [50000, 100000, 200000, 400000],
+  logistics:   [60000, 120000, 200000, 350000],
+  catering:    [600, 1000, 1600, 2500], // per plate, multiplied by guests and 3 days below
+};
+
+function ballpark3Day(v: Vendor, guestCount: number) {
+  const tier = Math.min(3, Math.max(0, v.price.length - 1));
+  const base = v.category === "catering" ? THREE_DAY_BASE.catering[tier] * guestCount * 3 : THREE_DAY_BASE[v.category][tier];
+  const round = (n: number) => Math.round(n / 5000) * 5000;
+  return { low: round(base * 0.85), high: round(base * 1.15) };
+}
+
+function vendorContact(v: Vendor) {
+  const n = Number(v.id.replace("v", ""));
+  return {
+    phone: `+91 90000 00${String(n).padStart(3, "0")}`,
+    email: `hello@${slugify(v.name)}.example`,
+    hours: "Mon – Sat, 10 am – 7 pm",
+  };
+}
+
+const CATEGORY_BLURB: Record<Category, string> = {
+  catering: "Full-service wedding catering: multi-cuisine menus, live counters, tasting sessions and trained service staff for every function.",
+  attire: "Bridal and groom couture, custom fittings and alterations, with trousseau planning for every ritual.",
+  decoration: "Mandap, stage and venue styling with fresh florals, lighting and themed installations for each function.",
+  photography: "Candid and traditional photography with cinematic films, drone coverage and same-week previews.",
+  hotels: "Wedding venue and guest-room blocks with banquet halls, lawns and a dedicated events team.",
+  transport: "Baraat vehicles, guest airport transfers and a coordinated fleet schedule across all three days.",
+  music: "Live performances, DJs and sangeet choreography with sound and stage production included.",
+  gifts: "Curated return gifts, shagun hampers and trousseau packing with bulk-order pricing.",
+  logistics: "On-ground coordination: vendor timelines, deliveries and day-of management so you can enjoy the celebrations.",
+};
 
 function inr(n: number) { return "₹" + n.toLocaleString("en-IN"); }
 
@@ -145,16 +207,59 @@ const INITIAL_THREADS: Thread[] = [
   },
 ];
 
+// ─── Background art ───────────────────────────────────────────────────────────
+
+// A rangoli-style mandala: petal rings, paisley (mango) leaves and a ring of dots.
+function Mandala({ className, style }: { className?: string; style?: React.CSSProperties }) {
+  const rotations = (n: number) => Array.from({ length: n }, (_, i) => (360 / n) * i);
+  return (
+    <svg viewBox="-100 -100 200 200" className={className} style={style} aria-hidden="true">
+      <g fill="none" stroke="#a8213b" strokeWidth="0.7">
+        <circle r="96" /><circle r="90" strokeDasharray="1 3" />
+        {rotations(36).map((a) => <circle key={`d${a}`} cx="0" cy="-93" r="1.3" fill="#c08a0c" stroke="none" transform={`rotate(${a})`} />)}
+        {rotations(24).map((a) => <path key={`p${a}`} d="M0 -88 C5 -80 5 -72 0 -66 C-5 -72 -5 -80 0 -88Z" transform={`rotate(${a})`} />)}
+        <circle r="62" />
+        {rotations(12).map((a) => <path key={`m${a}`} d="M0 -60 C16 -52 20 -34 6 -24 C-2 -20 -8 -26 -4 -32 C-1 -36 3 -34 2 -31" stroke="#c08a0c" transform={`rotate(${a})`} />)}
+        <circle r="30" />
+        {rotations(16).map((a) => <ellipse key={`e${a}`} cx="0" cy="-22" rx="4" ry="9" transform={`rotate(${a})`} />)}
+        <circle r="10" /><circle r="4" fill="#c08a0c" stroke="none" />
+      </g>
+    </svg>
+  );
+}
+
+// Fixed, low-opacity art that sits behind the page content.
+function Backdrop() {
+  const sparks = [[8, 18], [22, 72], [38, 9], [55, 84], [71, 22], [88, 60], [93, 12], [14, 46], [64, 52], [47, 33]];
+  return (
+    <div className="fixed inset-0 pointer-events-none overflow-hidden" style={{ zIndex: 0 }} aria-hidden="true">
+      <div className="absolute inset-0 paisley-bg" />
+      <Mandala className="absolute" style={{ width: 520, height: 520, top: -200, left: -200, opacity: 0.22 }} />
+      <Mandala className="absolute" style={{ width: 640, height: 640, bottom: -300, right: -240, opacity: 0.2 }} />
+      {sparks.map(([x, y], i) => (
+        <span key={i} className="absolute" style={{ left: `${x}%`, top: `${y}%`, fontSize: 14 + (i % 3) * 5, color: "#e0b015", WebkitTextFillColor: "#e0b015", background: "none", animation: `twinkle 2.8s ease-in-out ${i * 0.37}s infinite` }}>✦</span>
+      ))}
+    </div>
+  );
+}
+
 // ─── Onboarding ───────────────────────────────────────────────────────────────
 
 function OnboardingScreen({ onComplete }: { onComplete: (p: WeddingPlan) => void }) {
   const [step, setStep] = useState(0);
-  const [form, setForm] = useState<Partial<WeddingPlan>>({});
+  const [form, setForm] = useState<Partial<WeddingPlan>>({ rituals: [] });
   const set = (k: keyof WeddingPlan, v: string | number) => setForm((f) => ({ ...f, [k]: v }));
+  const rituals = form.rituals ?? [];
+  const toggleRitual = (r: string) =>
+    setForm((f) => {
+      const cur = f.rituals ?? [];
+      return { ...f, rituals: cur.includes(r) ? cur.filter((x) => x !== r) : [...cur, r] };
+    });
 
   return (
-    <div className="min-h-screen flex items-center justify-center" style={{ background: "linear-gradient(135deg, #fdf2f4 0%, #fefdf0 50%, #fdf8f0 100%)" }}>
-      <div className="w-full max-w-lg px-6">
+    <div className="min-h-screen flex items-center justify-center relative" style={{ background: "linear-gradient(135deg, #fdf2f4 0%, #fefdf0 50%, #fdf8f0 100%)" }}>
+      <Backdrop />
+      <div className="w-full max-w-lg px-6 py-10 relative" style={{ zIndex: 10 }}>
         <div className="text-center mb-10">
           <div className="inline-flex items-center gap-2 mb-2">
             <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "#a8213b" }}>
@@ -166,7 +271,7 @@ function OnboardingScreen({ onComplete }: { onComplete: (p: WeddingPlan) => void
         </div>
 
         <div className="flex items-center justify-center gap-2 mb-8">
-          {[0, 1, 2].map((i) => (
+          {[0, 1, 2, 3].map((i) => (
             <div key={i} className="h-1 rounded-full transition-all duration-300"
               style={{ width: i <= step ? 48 : 24, background: i <= step ? "#a8213b" : "#f5c6d0" }} />
           ))}
@@ -228,6 +333,45 @@ function OnboardingScreen({ onComplete }: { onComplete: (p: WeddingPlan) => void
           {step === 2 && (
             <div className="space-y-5">
               <div>
+                <h2 className="text-2xl font-medium text-gray-800 mb-1">Which rituals will you celebrate?</h2>
+                <p className="text-sm text-gray-400">Pick every function you plan to hold. We'll split your budget across them.</p>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium" style={{ color: "#a8213b" }}>{rituals.length} selected</span>
+                {rituals.length > 0 && (
+                  <button className="text-sm underline" style={{ color: "#a8213b" }} onClick={() => setForm((f) => ({ ...f, rituals: [] }))}>Clear all</button>
+                )}
+              </div>
+              <div className="space-y-5 overflow-y-auto pr-2" style={{ maxHeight: "46vh" }}>
+                {RITUAL_GROUPS.map((g) => (
+                  <div key={g.title}>
+                    <div className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "#a8213b" }}>{g.title}</div>
+                    <div className="flex flex-wrap gap-2">
+                      {g.items.map((r) => {
+                        const on = rituals.includes(r);
+                        return (
+                          <button key={r} onClick={() => toggleRitual(r)} aria-pressed={on}
+                            className="text-sm px-3 py-1.5 rounded-full transition-all"
+                            style={on ? { background: "linear-gradient(135deg, #a8213b, #881a30)", color: "#fff", border: "1px solid #881a30" } : { background: "#fff", color: "#1a1a1a", border: "1px solid #f5c6d0" }}>
+                            {on ? "✓ " : ""}{r}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-3">
+                <button className="flex-1 rounded-xl py-3 font-medium text-sm" style={{ border: "1px solid #f5c6d0", color: "#a8213b" }} onClick={() => setStep(1)}>Back</button>
+                <button className="flex-[2] text-white rounded-xl py-3 font-medium text-sm disabled:opacity-40" style={{ background: "linear-gradient(135deg, #a8213b, #881a30)" }}
+                  disabled={rituals.length === 0} onClick={() => setStep(3)}>Continue →</button>
+              </div>
+            </div>
+          )}
+
+          {step === 3 && (
+            <div className="space-y-5">
+              <div>
                 <h2 className="text-2xl font-medium text-gray-800 mb-1">What's your total budget?</h2>
                 <p className="text-sm text-gray-400">Our AI will suggest ideal allocations across all shaadi categories.</p>
               </div>
@@ -244,8 +388,8 @@ function OnboardingScreen({ onComplete }: { onComplete: (p: WeddingPlan) => void
                 </div>
               </div>
               <div className="flex gap-3">
-                <button className="flex-1 rounded-xl py-3 font-medium text-sm" style={{ border: "1px solid #f5c6d0", color: "#a8213b" }} onClick={() => setStep(1)}>Back</button>
-                <button className="flex-[2] text-white rounded-xl py-3 font-medium text-sm disabled:opacity-40" style={{ background: "linear-gradient(135deg, #a8213b, #881a30)" }}
+                <button className="flex-1 rounded-xl py-3 font-medium text-sm" style={{ border: "1px solid #f5c6d0", color: "#a8213b" }} onClick={() => setStep(2)}>Back</button>
+                <button className="flex-[2] text-white rounded-xl py-3 font-medium text-sm disabled:opacity-40 sparkle-btn" style={{ background: "linear-gradient(135deg, #a8213b, #881a30)" }}
                   disabled={!form.budget} onClick={() => onComplete(form as WeddingPlan)}>Shubh Aarambh ✨</button>
               </div>
             </div>
@@ -298,7 +442,7 @@ function Sidebar({ tab, setTab, plan, unreadCount }: { tab: Tab; setTab: (t: Tab
         {NAV.map((n) => (
           <button key={n.id} onClick={() => setTab(n.id)}
             className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all"
-            style={tab === n.id ? { background: "linear-gradient(135deg, #a8213b, #881a30)", color: "#fff" } : { color: "#6b6b6b" }}>
+            style={tab === n.id ? { background: "linear-gradient(135deg, #a8213b, #881a30)", color: "#fff" } : { color: "#1a1a1a" }}>
             <span className="text-base leading-none">{n.icon}</span>
             {n.label}
             {n.id === "messages" && unreadCount > 0 && (
@@ -398,6 +542,17 @@ function DashboardTab({ plan, allocation, setTab }: { plan: WeddingPlan; allocat
           </div>
         </div>
       </div>
+
+      {plan.rituals?.length > 0 && (
+        <div className="bg-white rounded-2xl p-6" style={{ border: "1px solid #fbe8ec" }}>
+          <h3 className="font-medium text-gray-700 text-sm mb-3">Your Rituals ({plan.rituals.length})</h3>
+          <div className="flex flex-wrap gap-2">
+            {plan.rituals.map((r) => (
+              <span key={r} className="text-sm px-3 py-1 rounded-full" style={{ background: "#fdf2f4", color: "#a8213b", border: "1px solid #f5c6d0" }}>{r}</span>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -485,14 +640,14 @@ function BudgetTab({ plan, allocation, setAllocation }: {
         <div className="flex gap-2">
           <button onClick={() => setLockTotal(!lockTotal)}
             className="text-xs px-4 py-2 rounded-xl transition-colors"
-            style={lockTotal ? { background: "#fdf2f4", color: "#a8213b", border: "1px solid #a8213b" } : { color: "#6b6b6b", border: "1px solid #e5e5e5" }}>
+            style={lockTotal ? { background: "#fdf2f4", color: "#a8213b", border: "1px solid #a8213b" } : { color: "#1a1a1a", border: "1px solid #e5e5e5" }}>
             {lockTotal ? "🔒 Total locked" : "🔓 Total free"}
           </button>
           <button onClick={() => setAllocation(mlAllocate(plan.budget, plan.guestCount))}
             className="text-xs px-4 py-2 rounded-xl transition-colors"
             style={{ color: "#a8213b", border: "1px solid #f5c6d0" }}>✦ Reset to AI</button>
           <button onClick={() => setCertOpen(true)}
-            className="text-xs px-4 py-2 rounded-xl text-white transition-colors"
+            className="text-xs px-4 py-2 rounded-xl text-white transition-colors sparkle-btn"
             style={{ background: "linear-gradient(135deg, #c08a0c, #9a6a0a)" }}>
             🏅 Budget Certificate
           </button>
@@ -603,8 +758,8 @@ function BudgetTab({ plan, allocation, setAllocation }: {
               <input type="range" min={0} max={plan.budget} step={5000} value={allocation[k]}
                 onChange={(e) => updateCategory(k, Number(e.target.value))}
                 aria-label={`${CATEGORY_META[k].label} budget`}
-                className="mt-3 w-full cursor-pointer"
-                style={{ accentColor: CATEGORY_META[k].color }} />
+                className="budget-slider mt-3 w-full cursor-pointer"
+                style={{ "--c": CATEGORY_META[k].color, "--p": `${(allocation[k] / plan.budget) * 100}%` } as React.CSSProperties} />
               <div className="text-xs text-gray-400 mt-1">
                 {Math.round((allocation[k] / plan.budget) * 100)}% · AI suggests {inr(mlSuggestion[k])}
               </div>
@@ -677,10 +832,90 @@ function BudgetTab({ plan, allocation, setAllocation }: {
 
 // ─── Vendors Tab ──────────────────────────────────────────────────────────────
 
-function VendorsTab({ plan }: { plan: WeddingPlan }) {
+function VendorDetail({ vendor, plan, saved, onToggleSave, onBack, onMessage }: {
+  vendor: Vendor; plan: WeddingPlan; saved: boolean; onToggleSave: () => void; onBack: () => void; onMessage: (v: Vendor) => void;
+}) {
+  const contact = vendorContact(vendor);
+  const cost = ballpark3Day(vendor, plan.guestCount);
+  const meta = CATEGORY_META[vendor.category];
+  const rows: [string, string][] = [
+    ["📍 Location", `${vendor.location} · ${vendor.distance} from you`],
+    ["📞 Phone", contact.phone],
+    ["✉️ Email", contact.email],
+    ["🕒 Available", contact.hours],
+  ];
+
+  return (
+    <div className="p-8 max-w-4xl space-y-6 relative" style={{ zIndex: 10 }}>
+      <button onClick={onBack} className="text-sm font-medium" style={{ color: "#a8213b" }}>← Back to vendors</button>
+
+      <div className="bg-white rounded-3xl overflow-hidden" style={{ border: "1px solid #fbe8ec" }}>
+        <div className="relative">
+          <img src={`https://images.unsplash.com/${vendor.image}?w=900&h=320&fit=crop&auto=format`} alt={vendor.name}
+            className="w-full h-60 object-cover" style={{ background: "#fdf2f4" }} />
+          <div className="absolute top-4 left-4 text-sm font-medium px-3 py-1 rounded-full" style={{ background: "rgba(255,255,255,0.93)", color: "#a8213b" }}>{vendor.tag}</div>
+          <button onClick={onToggleSave} aria-label={saved ? "Remove from saved" : "Save vendor"}
+            className="absolute top-4 right-4 w-9 h-9 rounded-full flex items-center justify-center text-lg"
+            style={saved ? { background: "#a8213b", color: "#fff" } : { background: "rgba(255,255,255,0.9)", color: "#333" }}>
+            {saved ? "♥" : "♡"}
+          </button>
+        </div>
+
+        <div className="p-8 space-y-7">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h1 className="text-3xl font-medium text-gray-800">{vendor.name}</h1>
+              <div className="text-sm text-gray-600 mt-1">{meta.icon} {meta.label}</div>
+            </div>
+            <div className="text-right shrink-0">
+              <div className="text-xl font-semibold" style={{ color: "#e0b015" }}>★ {vendor.rating}</div>
+              <div className="text-sm font-semibold" style={{ color: "#c08a0c" }}>{vendor.price}</div>
+            </div>
+          </div>
+
+          <p className="text-sm text-gray-600 leading-relaxed">{CATEGORY_BLURB[vendor.category]}</p>
+
+          <div className="grid grid-cols-5 gap-6">
+            <div className="col-span-3 rounded-2xl p-5 space-y-3" style={{ background: "#fdf8f0", border: "1px solid #fbe8ec" }}>
+              <h3 className="text-sm font-semibold uppercase tracking-wider" style={{ color: "#a8213b" }}>Contact & location</h3>
+              {rows.map(([label, value]) => (
+                <div key={label} className="flex gap-3">
+                  <span className="text-sm text-gray-600 w-28 shrink-0">{label}</span>
+                  <span className="text-sm text-gray-800 font-medium" style={{ overflowWrap: "anywhere" }}>{value}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="col-span-2 rounded-2xl p-5" style={{ background: "linear-gradient(135deg, #fdf2f4, #fefdf0)", border: "2px solid #c08a0c" }}>
+              <h3 className="text-sm font-semibold uppercase tracking-wider" style={{ color: "#a8213b" }}>3-day event ballpark</h3>
+              <div className="text-2xl font-semibold mt-3" style={{ color: "#a8213b" }}>{inr(cost.low)}</div>
+              <div className="text-sm text-gray-600">to {inr(cost.high)}</div>
+              <p className="text-xs text-gray-600 mt-3 leading-relaxed">
+                {vendor.category === "catering" ? `Based on ${plan.guestCount} guests across three days. ` : ""}
+                An estimate for mehndi, sangeet and wedding. The final quote depends on your guest list and requirements.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-4">
+            <button onClick={() => onMessage(vendor)}
+              className="text-white rounded-xl px-8 py-3 font-medium text-sm sparkle-btn"
+              style={{ background: "linear-gradient(135deg, #a8213b, #881a30)" }}>
+              💬 Message vendor
+            </button>
+            <span className="text-xs text-gray-600">Demo contact details: replace with real vendor data when connected.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function VendorsTab({ plan, onMessage }: { plan: WeddingPlan; onMessage: (v: Vendor) => void }) {
   const [activeCategory, setActiveCategory] = useState<Category | "all">("all");
   const [search, setSearch] = useState("");
   const [saved, setSaved] = useState<Set<string>>(new Set(["v14", "v5"]));
+  const [selected, setSelected] = useState<Vendor | null>(null);
 
   const filtered = VENDORS.filter((v) => {
     const matchCat = activeCategory === "all" || v.category === activeCategory;
@@ -689,6 +924,11 @@ function VendorsTab({ plan }: { plan: WeddingPlan }) {
   });
 
   const toggle = (id: string) => setSaved((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+  if (selected) {
+    return <VendorDetail vendor={selected} plan={plan} saved={saved.has(selected.id)}
+      onToggleSave={() => toggle(selected.id)} onBack={() => setSelected(null)} onMessage={onMessage} />;
+  }
 
   return (
     <div className="p-8 max-w-5xl space-y-6">
@@ -706,10 +946,10 @@ function VendorsTab({ plan }: { plan: WeddingPlan }) {
 
       <div className="flex flex-wrap gap-2">
         <button onClick={() => setActiveCategory("all")} className="px-4 py-1.5 rounded-full text-xs font-medium transition-all"
-          style={activeCategory === "all" ? { background: "#a8213b", color: "#fff" } : { background: "#fff", color: "#6b6b6b", border: "1px solid #fbe8ec" }}>All</button>
+          style={activeCategory === "all" ? { background: "#a8213b", color: "#fff" } : { background: "#fff", color: "#1a1a1a", border: "1px solid #fbe8ec" }}>All</button>
         {(Object.keys(CATEGORY_META) as Category[]).map((k) => (
           <button key={k} onClick={() => setActiveCategory(k)} className="px-4 py-1.5 rounded-full text-xs font-medium transition-all"
-            style={activeCategory === k ? { background: "#a8213b", color: "#fff" } : { background: "#fff", color: "#6b6b6b", border: "1px solid #fbe8ec" }}>
+            style={activeCategory === k ? { background: "#a8213b", color: "#fff" } : { background: "#fff", color: "#1a1a1a", border: "1px solid #fbe8ec" }}>
             {CATEGORY_META[k].icon} {CATEGORY_META[k].label}
           </button>
         ))}
@@ -725,7 +965,7 @@ function VendorsTab({ plan }: { plan: WeddingPlan }) {
                 style={{ background: "rgba(255,255,255,0.92)", color: "#a8213b" }}>{v.tag}</div>
               <button onClick={() => toggle(v.id)}
                 className={`absolute top-2 right-2 w-7 h-7 rounded-full flex items-center justify-center transition-all ${saved.has(v.id) ? "" : "opacity-0 group-hover:opacity-100"}`}
-                style={saved.has(v.id) ? { background: "#a8213b", color: "#fff" } : { background: "rgba(255,255,255,0.85)", color: "#aaa" }}>
+                style={saved.has(v.id) ? { background: "#a8213b", color: "#fff" } : { background: "rgba(255,255,255,0.85)", color: "#333" }}>
                 {saved.has(v.id) ? "♥" : "♡"}
               </button>
             </div>
@@ -745,7 +985,7 @@ function VendorsTab({ plan }: { plan: WeddingPlan }) {
                 </div>
                 <span className="text-xs" style={{ color: "#9a6a0a" }}>{CATEGORY_META[v.category].icon} {CATEGORY_META[v.category].label}</span>
               </div>
-              <button className="mt-3 w-full text-xs rounded-xl py-2 transition-colors"
+              <button onClick={() => setSelected(v)} className="mt-3 w-full text-xs rounded-xl py-2 transition-colors"
                 style={{ color: "#a8213b", border: "1px solid #f5c6d0" }}>View & Contact</button>
             </div>
           </div>
@@ -760,8 +1000,9 @@ function VendorsTab({ plan }: { plan: WeddingPlan }) {
 
 // ─── Messages Tab ─────────────────────────────────────────────────────────────
 
-function MessagesTab({ plan, threads, setThreads }: { plan: WeddingPlan; threads: Thread[]; setThreads: (t: Thread[]) => void }) {
-  const [activeId, setActiveId] = useState("t1");
+function MessagesTab({ plan, threads, setThreads, activeId, setActiveId }: {
+  plan: WeddingPlan; threads: Thread[]; setThreads: (t: Thread[]) => void; activeId: string; setActiveId: (id: string) => void;
+}) {
   const [draft, setDraft] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -895,6 +1136,7 @@ export default function App() {
   const [tab, setTab] = useState<Tab>("dashboard");
   const [allocation, setAllocation] = useState<BudgetAllocation>({} as BudgetAllocation);
   const [threads, setThreads] = useState<Thread[]>(INITIAL_THREADS);
+  const [activeThreadId, setActiveThreadId] = useState("t1");
 
   const unreadCount = threads.filter((t) => t.unread).length;
 
@@ -903,16 +1145,35 @@ export default function App() {
     setAllocation(mlAllocate(p.budget, p.guestCount));
   };
 
+  // "Message" on a vendor page: open the existing chat with them, or start a new one, then go to Messages.
+  const messageVendor = (v: Vendor) => {
+    const existing = threads.find((t) => t.role.includes(v.name));
+    if (existing) {
+      setActiveThreadId(existing.id);
+    } else {
+      const thread: Thread = {
+        id: `vendor-${v.id}`, sender: v.name, role: `${CATEGORY_META[v.category].label} · ${v.location}`,
+        avatar: v.name[0], unread: false, lastTime: "New", messages: [],
+      };
+      setThreads([thread, ...threads]);
+      setActiveThreadId(thread.id);
+    }
+    setTab("messages");
+  };
+
   if (!plan) return <OnboardingScreen onComplete={handleOnboard} />;
 
   return (
-    <div className="flex h-screen overflow-hidden" style={{ background: "#fdf8f0" }}>
-      <Sidebar tab={tab} setTab={setTab} plan={plan} unreadCount={unreadCount} />
-      <main className="flex-1 overflow-y-auto">
+    <div className="flex h-screen overflow-hidden relative" style={{ background: "#fdf8f0" }}>
+      <Backdrop />
+      <div className="relative flex" style={{ zIndex: 10 }}>
+        <Sidebar tab={tab} setTab={setTab} plan={plan} unreadCount={unreadCount} />
+      </div>
+      <main className="flex-1 overflow-y-auto relative" style={{ zIndex: 10 }}>
         {tab === "dashboard" && <DashboardTab plan={plan} allocation={allocation} setTab={setTab} />}
         {tab === "budget"    && <BudgetTab plan={plan} allocation={allocation} setAllocation={setAllocation} />}
-        {tab === "vendors"   && <VendorsTab plan={plan} />}
-        {tab === "messages"  && <MessagesTab plan={plan} threads={threads} setThreads={setThreads} />}
+        {tab === "vendors"   && <VendorsTab plan={plan} onMessage={messageVendor} />}
+        {tab === "messages"  && <MessagesTab plan={plan} threads={threads} setThreads={setThreads} activeId={activeThreadId} setActiveId={setActiveThreadId} />}
       </main>
     </div>
   );
