@@ -7,15 +7,19 @@ type BudgetAllocation = Record<Category, number>;
 const API_BASE = import.meta.env.DEV ? "http://localhost:8000" : "";
 
 // A vendor as the marketplace backend describes it (GET /api/vendors).
+// "osm" = a real listing from OpenStreetMap (no ratings or prices exist for it, so those are null);
+// "sample" = a fictional vendor used to fill gaps in the prototype.
 interface MarketVendor {
   id: string; name: string; category: Category; city: string; area: string;
-  tier: number; priceBand: string; rating: number; reliability: number; responseHours: number;
-  premiumLook: number; distanceKm: number; capacity: number | null; partnerScore: number;
-  estCost: number; tag: string; image: string; description: string; phone: string; email: string; hours: string;
+  tier: number; priceBand: string; rating: number | null; reliability: number | null; responseHours: number | null;
+  premiumLook: number | null; distanceKm: number; capacity: number | null; partnerScore: number | null;
+  estCost: number; estCostTypical: boolean; tag: string; image: string | null; description: string;
+  phone: string | null; email: string | null; hours: string | null; website: string | null;
+  source: "osm" | "sample"; osmUrl: string | null;
 }
 // The few fields needed to open a chat or record a booking with a vendor.
 type VendorRef = Pick<MarketVendor, "id" | "name" | "category" | "area" | "city">;
-interface CityInfo { name: string; state: string; kind: "metro" | "city" | "destination"; vendorCount: number; }
+interface CityInfo { name: string; state: string; kind: "metro" | "city" | "destination"; vendorCount: number; realCount?: number; }
 
 // A vendor the couple has booked. Spend is computed from these.
 interface Booking { vendorId: string; vendorName: string; category: Category; amount: number; }
@@ -298,6 +302,70 @@ function EditEventsModal({ plan, onSave, onClose }: { plan: WeddingPlan; onSave:
   );
 }
 
+// ─── City dropdown ────────────────────────────────────────────────────────────
+
+// Used only if the backend's city list has not loaded yet, so onboarding never blocks on it.
+const FALLBACK_CITIES: CityInfo[] = [
+  ...[["Mumbai", "Maharashtra"], ["Delhi", "Delhi NCR"], ["Bengaluru", "Karnataka"], ["Hyderabad", "Telangana"], ["Chennai", "Tamil Nadu"], ["Kolkata", "West Bengal"], ["Pune", "Maharashtra"], ["Ahmedabad", "Gujarat"]]
+    .map(([name, state]) => ({ name, state, kind: "metro" as const, vendorCount: 0 })),
+  ...[["Jaipur", "Rajasthan"], ["Lucknow", "Uttar Pradesh"], ["Chandigarh", "Chandigarh"], ["Kochi", "Kerala"], ["Indore", "Madhya Pradesh"], ["Surat", "Gujarat"]]
+    .map(([name, state]) => ({ name, state, kind: "city" as const, vendorCount: 0 })),
+  ...[["Udaipur", "Rajasthan"], ["Goa", "Goa"], ["Jodhpur", "Rajasthan"], ["Jaisalmer", "Rajasthan"], ["Rishikesh", "Uttarakhand"], ["Mussoorie", "Uttarakhand"], ["Alleppey", "Kerala"]]
+    .map(([name, state]) => ({ name, state, kind: "destination" as const, vendorCount: 0 })),
+];
+
+// A clean pick-a-city list: no typing, opens directly under the field at the same width.
+function CityDropdown({ cities, value, onChange }: { cities: CityInfo[]; value: string; onChange: (c: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const list = cities.length ? cities : FALLBACK_CITIES;
+  const groups: [string, CityInfo["kind"]][] = [["Metros", "metro"], ["Other major cities", "city"], ["Destination wedding cities", "destination"]];
+
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: Event) => { if (!boxRef.current?.contains(e.target as Node)) setOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", away);
+    document.addEventListener("touchstart", away);
+    document.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("mousedown", away); document.removeEventListener("touchstart", away); document.removeEventListener("keydown", esc); };
+  }, [open]);
+
+  return (
+    <div ref={boxRef} className="relative mt-1">
+      <button type="button" onClick={() => setOpen((o) => !o)} aria-haspopup="listbox" aria-expanded={open}
+        className="w-full rounded-xl px-4 py-3 text-sm flex items-center justify-between gap-3 text-left" style={INPUT_STYLE}>
+        <span style={{ color: value ? "#1a1a1a" : "#4a4a4a" }}>{value || "Select your city"}</span>
+        <span aria-hidden="true" className="text-xs transition-transform" style={{ color: "#a8213b", transform: open ? "rotate(180deg)" : "none" }}>▼</span>
+      </button>
+      {open && (
+        <div role="listbox" aria-label="Cities" className="absolute left-0 right-0 z-30 mt-2 rounded-2xl bg-white overflow-y-auto"
+          style={{ border: "1px solid #f5c6d0", maxHeight: 300, boxShadow: "0 12px 32px rgba(120, 30, 50, 0.18)" }}>
+          {groups.map(([title, kind]) => {
+            const rows = list.filter((c) => c.kind === kind);
+            return rows.length === 0 ? null : (
+              <div key={kind}>
+                <div className="px-4 pt-3 pb-1 text-xs font-semibold uppercase tracking-wider" style={{ color: "#a8213b" }}>{title}</div>
+                {rows.map((c) => {
+                  const on = c.name === value;
+                  return (
+                    <button key={c.name} type="button" role="option" aria-selected={on} onClick={() => { onChange(c.name); setOpen(false); }}
+                      className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left text-sm hover:bg-[#fdf2f4]"
+                      style={on ? { background: "#fdf2f4", color: "#a8213b", fontWeight: 600 } : { color: "#1a1a1a" }}>
+                      <span>{on ? "✓ " : ""}{c.name}</span>
+                      <span className="text-xs" style={{ color: "#555" }}>{c.state}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Onboarding ───────────────────────────────────────────────────────────────
 
 function OnboardingScreen({ cities, onComplete }: { cities: CityInfo[]; onComplete: (p: WeddingPlan) => void }) {
@@ -377,10 +445,8 @@ function OnboardingScreen({ cities, onComplete }: { cities: CityInfo[]; onComple
                     value={form.date ?? ""} onChange={(e) => set("date", e.target.value)} />
                 </div>
                 <div>
-                  <label className="text-xs font-medium uppercase tracking-wider" style={{ color: "#a8213b" }}>City / Location</label>
-                  <input className="mt-1 w-full rounded-xl px-4 py-3 text-sm focus:outline-none" style={INPUT_STYLE}
-                    list="city-options" placeholder="Start typing: Hyderabad, Jaipur, Udaipur, Goa…" value={form.location ?? ""} onChange={(e) => set("location", e.target.value)} />
-                  <datalist id="city-options">{cities.map((c) => <option key={c.name} value={c.name}>{c.state}</option>)}</datalist>
+                  <label className="text-xs font-medium uppercase tracking-wider" style={{ color: "#a8213b" }}>City</label>
+                  <CityDropdown cities={cities} value={form.location ?? ""} onChange={(c) => set("location", c)} />
                 </div>
                 <RitualPicker selected={rituals} onToggle={toggleRitual} onClear={clearRituals} />
               </div>
@@ -1004,20 +1070,35 @@ function CitySelect({ cities, value, onChange }: { cities: CityInfo[]; value: st
   );
 }
 
+// Shown instead of a photo for real listings: we have no picture of their business, so we don't use a stock one.
+function RealListingTile({ category, className = "" }: { category: Category; className?: string }) {
+  return (
+    <div className={`flex flex-col items-center justify-center text-center ${className}`} style={{ background: "linear-gradient(135deg, #fdf2f4, #fefdf0)" }}>
+      <div className="text-4xl" aria-hidden="true">{CATEGORY_META[category].icon}</div>
+      <div className="text-xs mt-1 text-gray-700">Real listing · no photo yet</div>
+    </div>
+  );
+}
+
+const OSM_CREDIT = "Real listings © OpenStreetMap contributors (ODbL)";
+
 function VendorDetail({ vendor, plan, saved, booked, onToggleSave, onToggleBook, onBack, onMessage }: {
   vendor: MarketVendor; plan: WeddingPlan; saved: boolean; booked: boolean; onToggleSave: () => void;
   onToggleBook: (v: VendorRef, amount: number) => void; onBack: () => void; onMessage: (v: VendorRef) => void;
 }) {
+  const real = vendor.source === "osm";
   const days = Math.max(1, plan.schedule.length);
   const round = (n: number) => Math.round(n / 5000) * 5000;
   const low = round(vendor.estCost * 0.9), high = round(vendor.estCost * 1.1);
   const meta = CATEGORY_META[vendor.category];
-  const rows: [string, string][] = [
-    ["📍 Location", `${vendor.area}, ${vendor.city} · about ${vendor.distanceKm} km from the centre`],
-    ["📞 Phone", vendor.phone],
-    ["✉️ Email", vendor.email],
-    ["🕒 Available", vendor.hours],
-    ...(vendor.capacity ? [["👥 Capacity", `Up to ${vendor.capacity} guests`] as [string, string]] : []),
+  const notListed = <span className="text-gray-600 font-normal">Not listed</span>;
+  const rows: [string, React.ReactNode][] = [
+    ["📍 Location", `${vendor.area ? vendor.area + ", " : ""}${vendor.city} · about ${vendor.distanceKm} km from the centre`],
+    ["📞 Phone", vendor.phone ?? notListed],
+    ["✉️ Email", vendor.email ?? notListed],
+    ["🌐 Website", vendor.website ? <a href={vendor.website.startsWith("http") ? vendor.website : `https://${vendor.website}`} target="_blank" rel="noreferrer" className="underline" style={{ color: "#a8213b" }}>{vendor.website}</a> : notListed],
+    ["🕒 Hours", vendor.hours ?? notListed],
+    ...(vendor.capacity ? [["👥 Capacity", `Up to ${vendor.capacity} guests`] as [string, React.ReactNode]] : []),
   ];
 
   return (
@@ -1026,9 +1107,11 @@ function VendorDetail({ vendor, plan, saved, booked, onToggleSave, onToggleBook,
 
       <div className="bg-white rounded-3xl overflow-hidden" style={{ border: "1px solid #fbe8ec" }}>
         <div className="relative">
-          <img src={`https://images.unsplash.com/${vendor.image}?w=1000&h=320&fit=crop&auto=format`} alt={vendor.name} onError={(e) => { e.currentTarget.style.visibility = "hidden"; }}
-            className="w-full h-44 sm:h-60 object-cover" style={{ background: "#fdf2f4" }} />
-          <div className="absolute top-4 left-4 text-sm font-medium px-3 py-1 rounded-full" style={{ background: "rgba(255,255,255,0.93)", color: "#a8213b" }}>{vendor.tag}</div>
+          {vendor.image
+            ? <img src={`https://images.unsplash.com/${vendor.image}?w=1000&h=320&fit=crop&auto=format`} alt={vendor.name} onError={(e) => { e.currentTarget.style.visibility = "hidden"; }}
+                className="w-full h-44 sm:h-60 object-cover" style={{ background: "#fdf2f4" }} />
+            : <RealListingTile category={vendor.category} className="w-full h-44 sm:h-60" />}
+          <div className="absolute top-4 left-4 text-sm font-medium px-3 py-1 rounded-full" style={{ background: "rgba(255,255,255,0.93)", color: "#a8213b" }}>{real ? "📍 Real listing" : vendor.tag}</div>
           <button onClick={onToggleSave} aria-label={saved ? "Remove from saved" : "Save vendor"}
             className="absolute top-4 right-4 w-11 h-11 sm:w-9 sm:h-9 rounded-full flex items-center justify-center text-lg"
             style={saved ? { background: "#a8213b", color: "#fff" } : { background: "rgba(255,255,255,0.9)", color: "#333" }}>
@@ -1040,13 +1123,19 @@ function VendorDetail({ vendor, plan, saved, booked, onToggleSave, onToggleBook,
           <div className="flex items-start justify-between gap-3 sm:gap-4 flex-wrap">
             <div className="min-w-0">
               <h1 className="text-2xl sm:text-3xl font-medium text-gray-800">{vendor.name}</h1>
-              <div className="text-sm text-gray-600 mt-1">{meta.icon} {meta.label} · {vendor.area}, {vendor.city}</div>
-              <div className="flex items-center gap-2 mt-2 text-lg"><Stars rating={vendor.rating} /><span className="text-sm font-semibold text-gray-800">{vendor.rating.toFixed(1)}</span></div>
+              <div className="text-sm text-gray-600 mt-1">{meta.icon} {meta.label} · {vendor.area ? `${vendor.area}, ` : ""}{vendor.city}</div>
+              {vendor.rating !== null
+                ? <div className="flex items-center gap-2 mt-2 text-lg"><Stars rating={vendor.rating} /><span className="text-sm font-semibold text-gray-800">{vendor.rating.toFixed(1)}</span></div>
+                : <div className="mt-2 text-sm font-medium text-gray-700">Not rated yet</div>}
             </div>
             <div className="sm:text-right shrink-0">
-              <div className="text-xs uppercase tracking-wider text-gray-600">Partner score</div>
-              <div className="text-3xl sm:text-4xl font-semibold" style={{ color: "#a8213b" }}>{vendor.partnerScore}<span className="text-lg text-gray-600">/100</span></div>
-              <div className="text-sm font-semibold" style={{ color: "#c08a0c" }}>{vendor.priceBand}</div>
+              {vendor.partnerScore !== null ? (
+                <>
+                  <div className="text-xs uppercase tracking-wider text-gray-600">Partner score</div>
+                  <div className="text-3xl sm:text-4xl font-semibold" style={{ color: "#a8213b" }}>{vendor.partnerScore}<span className="text-lg text-gray-600">/100</span></div>
+                  <div className="text-sm font-semibold" style={{ color: "#c08a0c" }}>{vendor.priceBand}</div>
+                </>
+              ) : <div className="text-sm text-gray-700">No Partner score yet</div>}
             </div>
           </div>
 
@@ -1055,11 +1144,19 @@ function VendorDetail({ vendor, plan, saved, booked, onToggleSave, onToggleBook,
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5 sm:gap-6">
             <div className="rounded-2xl p-4 sm:p-5 space-y-4" style={{ background: "#fdf8f0", border: "1px solid #fbe8ec" }}>
               <h3 className="text-sm font-semibold uppercase tracking-wider" style={{ color: "#a8213b" }}>Scorecard</h3>
-              <ScoreBar label="Customer rating" value={(vendor.rating / 5) * 100} shown={`${vendor.rating.toFixed(1)} / 5`} />
-              <ScoreBar label="Reliability" value={vendor.reliability} shown={`${vendor.reliability}%`} />
-              <ScoreBar label="Replies within" value={100 - Math.min(24, vendor.responseHours) / 24 * 100} shown={`~${vendor.responseHours} h`} />
-              <ScoreBar label="Premium look" value={vendor.premiumLook} shown={`${vendor.premiumLook}%`} />
-              <p className="text-xs text-gray-600">Partner score combines rating, reliability, response time and premium look.</p>
+              {vendor.rating !== null && vendor.reliability !== null && vendor.responseHours !== null && vendor.premiumLook !== null ? (
+                <>
+                  <ScoreBar label="Customer rating" value={(vendor.rating / 5) * 100} shown={`${vendor.rating.toFixed(1)} / 5`} />
+                  <ScoreBar label="Reliability" value={vendor.reliability} shown={`${vendor.reliability}%`} />
+                  <ScoreBar label="Replies within" value={100 - Math.min(24, vendor.responseHours) / 24 * 100} shown={`~${vendor.responseHours} h`} />
+                  <ScoreBar label="Premium look" value={vendor.premiumLook} shown={`${vendor.premiumLook}%`} />
+                  <p className="text-xs text-gray-600">Partner score combines rating, reliability, response time and premium look.</p>
+                </>
+              ) : (
+                <p className="text-sm text-gray-700 leading-relaxed">
+                  No ratings yet. This is a real business from OpenStreetMap, so we hold no reviews, reliability or response-time data for it. Its scorecard will build up as couples message and book through Partnered.
+                </p>
+              )}
             </div>
 
             <div className="space-y-6">
@@ -1072,12 +1169,13 @@ function VendorDetail({ vendor, plan, saved, booked, onToggleSave, onToggleBook,
                   </div>
                 ))}
               </div>
-              <div className="rounded-2xl p-5" style={{ background: "linear-gradient(135deg, #fdf2f4, #fefdf0)", border: "2px solid #c08a0c" }}>
-                <h3 className="text-sm font-semibold uppercase tracking-wider" style={{ color: "#a8213b" }}>{days}-day event ballpark</h3>
+              <div className="rounded-2xl p-4 sm:p-5" style={{ background: "linear-gradient(135deg, #fdf2f4, #fefdf0)", border: "2px solid #c08a0c" }}>
+                <h3 className="text-sm font-semibold uppercase tracking-wider" style={{ color: "#a8213b" }}>{real ? "Typical price range" : `${days}-day event ballpark`}</h3>
                 <div className="text-2xl font-semibold mt-2" style={{ color: "#a8213b" }}>{inr(low)} – {inr(high)}</div>
                 <p className="text-xs text-gray-700 mt-2 leading-relaxed">
+                  {real ? "This vendor hasn't published prices. This is a typical range for the category, not a quote: message them to ask. " : ""}
                   {vendor.category === "catering" ? `Based on ${plan.guestCount} guests over ${days} day${days > 1 ? "s" : ""}. ` : ""}
-                  An estimate; the final quote depends on your guest list and requirements.
+                  {real ? "" : "An estimate; the final quote depends on your guest list and requirements."}
                 </p>
               </div>
             </div>
@@ -1094,8 +1192,15 @@ function VendorDetail({ vendor, plan, saved, booked, onToggleSave, onToggleBook,
               {booked ? `✓ Booked · ${inr(vendor.estCost)} (undo)` : "Mark as booked"}
             </button>
           </div>
-          <div className="text-xs text-gray-600">
-            Sample data: vendors are fictional and contact details are placeholders. "Mark as booked" records the estimate; real payment will go through Pine Labs.
+          <div className="text-xs text-gray-600 space-y-1">
+            {real ? (
+              <p>
+                {OSM_CREDIT}.{vendor.osmUrl && <> <a href={vendor.osmUrl} target="_blank" rel="noreferrer" className="underline" style={{ color: "#a8213b" }}>View on OpenStreetMap</a>.</>}
+                {" "}"Mark as booked" records the typical estimate, not a quote; real payment will go through Pine Labs.
+              </p>
+            ) : (
+              <p>Sample vendor: fictional, with placeholder contact details. "Mark as booked" records the estimate; real payment will go through Pine Labs.</p>
+            )}
           </div>
         </div>
       </div>
@@ -1112,6 +1217,7 @@ function VendorsTab({ plan, cities, city, setCity, bookings, onToggleBook, onMes
   const [activeCategory, setActiveCategory] = useState<Category | "all">("all");
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<VendorSort>("score");
+  const [source, setSource] = useState<"all" | "osm" | "sample">("all");
   const [saved, setSaved] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<MarketVendor | null>(null);
   const [vendors, setVendors] = useState<MarketVendor[]>([]);
@@ -1135,15 +1241,18 @@ function VendorsTab({ plan, cities, city, setCity, bookings, onToggleBook, onMes
     const q = search.trim().toLowerCase();
     const rows = vendors.filter((v) =>
       (activeCategory === "all" || v.category === activeCategory) &&
+      (source === "all" || v.source === source) &&
       (!q || v.name.toLowerCase().includes(q) || v.area.toLowerCase().includes(q)));
+    // Real listings have no rating or score, so they sort first and in the backend order; sample vendors follow by score.
     const by: Record<VendorSort, (a: MarketVendor, b: MarketVendor) => number> = {
-      score: (a, b) => b.partnerScore - a.partnerScore,
-      rating: (a, b) => b.rating - a.rating || b.partnerScore - a.partnerScore,
+      score: (a, b) => (a.source === b.source ? (b.partnerScore ?? 0) - (a.partnerScore ?? 0) : a.source === "osm" ? -1 : 1),
+      rating: (a, b) => (b.rating ?? -1) - (a.rating ?? -1),
       price: (a, b) => a.estCost - b.estCost,
       distance: (a, b) => a.distanceKm - b.distanceKm,
     };
     return [...rows].sort(by[sort]);
-  }, [vendors, activeCategory, search, sort]);
+  }, [vendors, activeCategory, source, search, sort]);
+  const realCount = vendors.filter((v) => v.source === "osm").length;
 
   const toggle = (id: string) => setSaved((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
@@ -1179,7 +1288,7 @@ function VendorsTab({ plan, cities, city, setCity, bookings, onToggleBook, onMes
         <label className="inline-flex items-center gap-2 text-sm text-gray-700">
           Sort by
           <select value={sort} onChange={(e) => setSort(e.target.value as VendorSort)} className="rounded-xl px-3 py-2.5 bg-white text-sm focus:outline-none" style={{ border: "1px solid #fbe8ec" }}>
-            <option value="score">Partner score</option>
+            <option value="score">Best match</option>
             <option value="rating">Rating</option>
             <option value="price">Price: low to high</option>
             <option value="distance">Distance</option>
@@ -1199,6 +1308,20 @@ function VendorsTab({ plan, cities, city, setCity, bookings, onToggleBook, onMes
         ))}
       </div>
 
+      {status === "ready" && (
+        <div className="flex gap-2 overflow-x-auto sm:flex-wrap -mx-4 px-4 sm:mx-0 sm:px-0 [&>button]:shrink-0 [&>button]:whitespace-nowrap">
+          {([["all", `All (${vendors.length})`], ["osm", `📍 Real listings (${realCount})`], ["sample", `Sample vendors (${vendors.length - realCount})`]] as const).map(([k, label]) => (
+            <button key={k} onClick={() => setSource(k)} className="px-4 py-2 sm:py-1.5 rounded-full text-sm font-medium"
+              style={source === k ? { background: "#1a1a1a", color: "#fff" } : { background: "#fff", color: "#1a1a1a", border: "1px solid #ddd" }}>{label}</button>
+          ))}
+        </div>
+      )}
+      {status === "ready" && realCount === 0 && (
+        <div className="rounded-xl p-3 text-sm text-gray-800" style={{ background: "#fffdf0", border: "1px solid #fbf0a1" }}>
+          No real listings have been imported for {city} yet, so you are seeing sample vendors only.
+        </div>
+      )}
+
       {status === "loading" && <div className="text-sm text-gray-700 py-10 text-center">Loading vendors…</div>}
       {status === "error" && <div className="text-sm font-medium py-10 text-center" style={{ color: "#a8213b" }}>{error}</div>}
 
@@ -1209,9 +1332,11 @@ function VendorsTab({ plan, cities, city, setCity, bookings, onToggleBook, onMes
             {filtered.map((v) => (
               <div key={v.id} className="bg-white rounded-2xl overflow-hidden group transition-all hover:shadow-md" style={{ border: "1px solid #fbe8ec" }}>
                 <div className="relative">
-                  <img src={`https://images.unsplash.com/${v.image}?w=400&h=200&fit=crop&auto=format`} alt={v.name} loading="lazy" onError={(e) => { e.currentTarget.style.visibility = "hidden"; }}
-                    className="w-full h-36 object-cover" style={{ background: "#fdf2f4" }} />
-                  <div className="absolute top-2 left-2 text-xs font-medium px-2 py-1 rounded-full" style={{ background: "rgba(255,255,255,0.92)", color: "#a8213b" }}>{v.tag}</div>
+                  {v.image
+                    ? <img src={`https://images.unsplash.com/${v.image}?w=400&h=200&fit=crop&auto=format`} alt={v.name} loading="lazy" onError={(e) => { e.currentTarget.style.visibility = "hidden"; }}
+                        className="w-full h-36 object-cover" style={{ background: "#fdf2f4" }} />
+                    : <RealListingTile category={v.category} className="w-full h-36" />}
+                  <div className="absolute top-2 left-2 text-xs font-medium px-2 py-1 rounded-full" style={{ background: "rgba(255,255,255,0.92)", color: "#a8213b" }}>{v.source === "osm" ? "📍 Real listing" : v.tag}</div>
                   <button onClick={() => toggle(v.id)} aria-label={saved.has(v.id) ? "Remove from saved" : "Save vendor"}
                     className="absolute top-2 right-2 w-11 h-11 sm:w-9 sm:h-9 rounded-full flex items-center justify-center text-lg transition-all"
                     style={saved.has(v.id) ? { background: "#a8213b", color: "#fff" } : { background: "rgba(255,255,255,0.85)", color: "#333" }}>
@@ -1223,16 +1348,20 @@ function VendorsTab({ plan, cities, city, setCity, bookings, onToggleBook, onMes
                     <div className="min-w-0">
                       <div className="font-medium text-gray-800 text-sm">{v.name}</div>
                       <div className="text-xs text-gray-700 mt-0.5">{CATEGORY_META[v.category].icon} {CATEGORY_META[v.category].label}</div>
-                      <div className="text-xs text-gray-600 mt-0.5">{v.area} · {v.distanceKm} km</div>
+                      <div className="text-xs text-gray-600 mt-0.5">{v.area ? `${v.area} · ` : ""}{v.distanceKm} km from centre</div>
                     </div>
                     <div className="text-right shrink-0">
-                      <div className="text-xs font-semibold" style={{ color: "#c08a0c" }}>{v.priceBand}</div>
-                      <div className="text-xs text-gray-700">~{inr(v.estCost)}</div>
+                      {v.priceBand && <div className="text-xs font-semibold" style={{ color: "#c08a0c" }}>{v.priceBand}</div>}
+                      <div className="text-xs text-gray-700">{v.estCostTypical ? "typical " : ""}~{inr(v.estCost)}</div>
                     </div>
                   </div>
-                  <div className="mt-3 flex items-center justify-between">
-                    <div className="flex items-center gap-1.5"><Stars rating={v.rating} /><span className="text-xs text-gray-800 font-medium">{v.rating.toFixed(1)}</span></div>
-                    <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ background: "#fdf2f4", color: "#a8213b" }} title="Partner score">{v.partnerScore}/100</span>
+                  <div className="mt-3 flex items-center justify-between gap-2">
+                    {v.rating !== null
+                      ? <div className="flex items-center gap-1.5"><Stars rating={v.rating} /><span className="text-xs text-gray-800 font-medium">{v.rating.toFixed(1)}</span></div>
+                      : <span className="text-xs text-gray-700">Not rated yet</span>}
+                    {v.partnerScore !== null
+                      ? <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ background: "#fdf2f4", color: "#a8213b" }} title="Partner score">{v.partnerScore}/100</span>
+                      : <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: "#f1f1f1", color: "#333" }} title="No ratings exist yet for real listings">{v.phone ? "📞 phone listed" : "ask for quote"}</span>}
                   </div>
                   <div className="mt-3 flex gap-2">
                     <button onClick={() => setSelected(v)} className="flex-1 text-sm rounded-xl py-2.5 transition-colors" style={{ color: "#a8213b", border: "1px solid #f5c6d0" }}>View & Contact</button>
@@ -1243,7 +1372,10 @@ function VendorsTab({ plan, cities, city, setCity, bookings, onToggleBook, onMes
             ))}
             {filtered.length === 0 && <div className="col-span-full text-center py-16 text-gray-700 text-sm">No vendors match. Try another category or search.</div>}
           </div>
-          <p className="text-xs text-gray-600">Sample data: vendors are fictional and prices are estimates for {plan.guestCount} guests over {days} day{days > 1 ? "s" : ""}.</p>
+          <p className="text-xs text-gray-600">
+            {realCount > 0 && <>{OSM_CREDIT}: they have no ratings or published prices yet. </>}
+            Sample vendors are fictional. All prices are estimates for {plan.guestCount} guests over {days} day{days > 1 ? "s" : ""}, not quotes.
+          </p>
         </>
       )}
     </div>
@@ -1418,6 +1550,7 @@ interface AgentEvent { step: number; title: string; detail: string; status: "don
 interface AgentPick {
   id: string; name: string; area: string; category: Category; tier: number; rating: number;
   estCost: number; fit: "within" | "stretch" | "over"; score: number; reasons: string[];
+  source: "osm" | "sample"; rated: boolean; phone: string | null;
 }
 interface AgentResult {
   events: AgentEvent[];
@@ -1593,6 +1726,7 @@ function AgentPanel({ plan, agent, setAgent, setAllocation, completed, onMessage
                               <span className="text-sm font-semibold text-gray-800">{p.name}</span>
                               {i === 0 && <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: "#a8213b", color: "#fff" }}>Top pick</span>}
                               <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: f.bg, color: f.color, border: `1px solid ${f.color}` }}>{f.label}</span>
+                              <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: p.source === "osm" ? "#eaf3ff" : "#f1f1f1", color: "#222", border: "1px solid #cfd8e3" }}>{p.source === "osm" ? "📍 Real listing" : "Sample"}</span>
                             </div>
                             <div className="text-sm text-gray-700">{p.area} · est. {inr(p.estCost)}</div>
                             <div className="text-xs text-gray-600">{p.reasons.slice(0, 2).join(" · ")}</div>

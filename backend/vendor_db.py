@@ -163,6 +163,52 @@ def _generate(city: str, meta: dict) -> list[dict]:
 VENDORS: list[dict] = [make(r) for r in _ROWS] + [
     v for city, meta in CITIES.items() if meta.get("generate", True) for v in _generate(city, meta)
 ]
+for _v in VENDORS:
+    _v["source"] = "sample"  # fictional: generated for the prototype
+
+
+# ── Real listings from OpenStreetMap (imported once by osm_import.py) ─────────────
+import json  # noqa: E402
+import math  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+from osm_import import CITY_BBOX  # noqa: E402  (only its constants are used; importing it does not run it)
+
+
+def _km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    p = math.pi / 180
+    a = 0.5 - math.cos((lat2 - lat1) * p) / 2 + math.cos(lat1 * p) * math.cos(lat2 * p) * (1 - math.cos((lon2 - lon1) * p)) / 2
+    return 12742 * math.asin(math.sqrt(a))
+
+
+def _load_real() -> list[dict]:
+    """Real places OpenStreetMap knows about. They have NO ratings, prices or availability: those stay None, never guessed."""
+    path = Path(__file__).parent / "data" / "osm_vendors.json"
+    if not path.exists():
+        return []
+    try:
+        rows = json.loads(path.read_text(encoding="utf-8")).get("vendors", [])
+    except (OSError, json.JSONDecodeError):
+        return []
+    out = []
+    for r in rows:
+        meta, bbox = CITIES.get(r["city"]), CITY_BBOX.get(r["city"])
+        if not meta or not bbox:
+            continue
+        out.append({
+            "id": r["id"], "name": r["name"], "category": r["category"], "city": r["city"],
+            "area": r.get("suburb") or r.get("street") or "",
+            "tier": 2,  # price level unknown: use the typical mid band for estimates, and say so
+            "rating": None, "reliability": None, "response_hours": None, "premium_look": None,
+            "distance_km": round(_km((bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2, r["lat"], r["lon"]), 1),
+            "price_mult": meta["price"], "capacity": 0, "source": "osm",
+            "lat": r["lat"], "lon": r["lon"], "phone": r.get("phone"), "website": r.get("website"),
+            "email": r.get("email"), "hours": r.get("hours"), "osm_type": r.get("osmType"), "osm_id": r.get("osmId"),
+        })
+    return out
+
+
+VENDORS += _load_real()
 _BY_CITY: dict[str, list[dict]] = {}
 for _v in VENDORS:
     _BY_CITY.setdefault(_v["city"].lower(), []).append(_v)
@@ -198,7 +244,8 @@ def vendors_in_city(city: str) -> list[dict]:
 
 def cities_summary() -> list[dict]:
     return [
-        {"name": name, "state": meta["state"], "kind": meta["kind"], "vendorCount": len(_BY_CITY.get(name.lower(), []))}
+        {"name": name, "state": meta["state"], "kind": meta["kind"], "vendorCount": len(_BY_CITY.get(name.lower(), [])),
+         "realCount": sum(1 for v in _BY_CITY.get(name.lower(), []) if v["source"] == "osm")}
         for name, meta in CITIES.items()
     ]
 
@@ -229,13 +276,32 @@ _BLURB = {
 }
 
 
-def partner_score(v: dict) -> int:
-    """One 0-100 number summarising a vendor: rating 40%, reliability 30%, response time 15%, premium look 15%."""
+_OSM_KIND = {"hotels": "venue or hotel", "catering": "caterer", "photography": "photo studio", "decoration": "florist",
+             "attire": "wedding shop", "gifts": "gift shop"}
+
+
+def partner_score(v: dict) -> int | None:
+    """One 0-100 number summarising a vendor: rating 40%, reliability 30%, response time 15%, premium look 15%.
+    Real listings have no such data, so they get no score (None) instead of a made-up one."""
+    if v.get("rating") is None:
+        return None
     return round(100 * (0.40 * (v["rating"] - 3.5) / 1.5 + 0.30 * v["reliability"]
                         + 0.15 * (1 - min(v["response_hours"], 24) / 24) + 0.15 * v["premium_look"]))
 
 
 def vendor_profile(v: dict, guests: int, days: int) -> dict:
+    if v["source"] == "osm":
+        kind = _OSM_KIND.get(v["category"], "business")
+        return {
+            "id": v["id"], "name": v["name"], "category": v["category"], "city": v["city"], "area": v["area"],
+            "tier": 2, "priceBand": "", "rating": None, "reliability": None, "responseHours": None, "premiumLook": None,
+            "distanceKm": v["distance_km"], "capacity": None, "partnerScore": None,
+            "estCost": estimate_cost(v, guests, days), "estCostTypical": True,
+            "tag": "Real listing", "image": None, "source": "osm",
+            "description": f"A {kind} listed on OpenStreetMap in {v['city']}. No ratings or prices are published for it yet: message them to ask about availability and a quote.",
+            "phone": v["phone"], "email": v["email"], "hours": v["hours"], "website": v["website"],
+            "osmUrl": f"https://www.openstreetmap.org/{v['osm_type']}/{v['osm_id']}", "lat": v["lat"], "lon": v["lon"],
+        }
     h = int(hashlib.md5(v["id"].encode()).hexdigest(), 16)
     images = _IMAGES[v["category"]]
     if v["tier"] == 1:
@@ -256,7 +322,8 @@ def vendor_profile(v: dict, guests: int, days: int) -> dict:
         "rating": v["rating"], "reliability": round(v["reliability"] * 100), "responseHours": v["response_hours"],
         "premiumLook": round(v["premium_look"] * 100), "distanceKm": v["distance_km"],
         "capacity": v["capacity"] or None, "partnerScore": partner_score(v),
-        "estCost": estimate_cost(v, guests, days), "tag": tag,
+        "estCost": estimate_cost(v, guests, days), "estCostTypical": False, "tag": tag,
+        "source": "sample", "website": None, "osmUrl": None, "lat": None, "lon": None,
         "image": images[h % len(images)],
         "description": f"{_BLURB[v['category']]} Based in {v['area']}, {v['city']}.",
         # Placeholder contact details: obviously fake until real vendor onboarding exists.

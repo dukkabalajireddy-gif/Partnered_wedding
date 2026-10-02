@@ -67,6 +67,16 @@ def inr(n: float) -> str:
 
 # ── Step 1: envelope ────────────────────────────────────────────────────────────
 
+def prefer_real(pool: list[dict], minimum: int = 3) -> list[dict]:
+    """Where OpenStreetMap gives at least `minimum` real listings in a category, use only those; otherwise add sample vendors to fill the gap."""
+    out = []
+    for cat in {v["category"] for v in pool}:
+        rows = [v for v in pool if v["category"] == cat]
+        real = [v for v in rows if v["source"] == "osm"]
+        out += real if len(real) >= minimum else rows
+    return out
+
+
 def make_envelope(budget: int, guests: int) -> dict:
     reserve = round(budget * CONTINGENCY / 1000) * 1000
     per_guest = budget / max(1, guests)
@@ -145,6 +155,8 @@ def allocate(allocatable: int, prefs: dict, guests: int, creative_director: bool
 
 def busy_dates(vendor: dict, dates: list[str]) -> list[str]:
     """Deterministic fake calendar: better-rated vendors are busier. Real calendars arrive with vendor onboarding."""
+    if vendor["source"] == "osm":
+        return []  # unknown: we never pretend to know a real business's calendar
     pct = 10 + (vendor["rating"] - 4.0) * 25
     return [d for d in dates if int(hashlib.md5(f"{vendor['id']}:{d}".encode()).hexdigest(), 16) % 100 < pct]
 
@@ -159,13 +171,14 @@ def score_weights(prefs: dict) -> dict[str, float]:
 
 
 def score_vendor(v: dict, cost: int, alloc: int, weights: dict) -> tuple[int, dict]:
+    unknown = 0.5  # real listings have no rating, reliability or response data: neutral, not invented
     parts = {
         "price_fit": 1.0 if cost <= alloc else max(0.0, 1 - (cost - alloc) / max(1, alloc)),
-        "quality": min(1.0, max(0.0, (v["rating"] - 3.5) / 1.5)),
-        "reliability": v["reliability"],
-        "premium": v["premium_look"],
+        "quality": unknown if v["rating"] is None else min(1.0, max(0.0, (v["rating"] - 3.5) / 1.5)),
+        "reliability": unknown if v["reliability"] is None else v["reliability"],
+        "premium": unknown if v["premium_look"] is None else v["premium_look"],
         "distance": max(0.0, 1 - v["distance_km"] / 40),
-        "response": max(0.0, 1 - v["response_hours"] / 24),
+        "response": unknown if v["response_hours"] is None else max(0.0, 1 - v["response_hours"] / 24),
     }
     total = sum(weights[k] * parts[k] for k in parts)
     return round(total * 100), {k: round(x * 100) for k, x in parts.items()}
@@ -176,6 +189,9 @@ def reasons_for(v: dict, cost: int, alloc: int, fit: str) -> list[str]:
         money = f"Within your {inr(alloc)} allocation (est. {inr(cost)})"
     else:
         money = f"{inr(cost - alloc)} over your {inr(alloc)} allocation (est. {inr(cost)})"
+    if v["source"] == "osm":
+        contact = "phone listed" if v.get("phone") else ("website listed" if v.get("website") else "no contact details listed")
+        return [money, "Real listing (OpenStreetMap): no ratings or prices published yet", f"{v['distance_km']} km from the city centre, {contact}"]
     return [money, f"{v['rating']}★ and {round(v['reliability'] * 100)}% reliable", f"Replies in about {v['response_hours']}h, {v['distance_km']} km away"]
 
 
@@ -214,7 +230,7 @@ def run_agent(req: RunIn):
     # 3. Search the vendor database
     skipped = [c for c in LABELS if c in req.completed]  # the couple already did these: do not touch them
     everything = vendors_in_city(plan.location)
-    pool = [v for v in everything if v["category"] not in skipped]
+    pool = prefer_real([v for v in everything if v["category"] not in skipped])
 
     def early_exit(detail: str, summary: str):
         log(3, "Search your vendor database", detail, "warn")
@@ -229,7 +245,8 @@ def run_agent(req: RunIn):
                           "You've marked every vendor item as done, so there is nothing left for me to search. Untick an item if you want me to work on it.")
     cats = sorted({v["category"] for v in pool}, key=lambda c: -alloc.get(c, 0))
     log(3, "Search your vendor database",
-        f"Found {len(pool)} vendors in {plan.location} across {len(cats)} open categories."
+        f"Found {len(pool)} vendors in {plan.location} across {len(cats)} open categories: "
+        f"{sum(1 for v in pool if v['source'] == 'osm')} real listings (OpenStreetMap) and {sum(1 for v in pool if v['source'] == 'sample')} sample vendors filling the gaps."
         + (f" Skipping {', '.join(LABELS[c] for c in skipped)}: you marked {'it' if len(skipped) == 1 else 'them'} done." if skipped else ""))
 
     # 4. External sources
@@ -242,7 +259,7 @@ def run_agent(req: RunIn):
     for cat in cats:
         rows = []
         for v in (x for x in pool if x["category"] == cat):
-            if cat == "hotels" and v["capacity"] < plan.guestCount:
+            if cat == "hotels" and v["capacity"] and v["capacity"] < plan.guestCount:
                 removed_notes.append(f"{v['name']} (holds {v['capacity']}, you need {plan.guestCount})")
                 continue
             cost = estimate_cost(v, plan.guestCount, n_days)
@@ -273,7 +290,8 @@ def run_agent(req: RunIn):
     log(6, "Check availability",
         f"Checked {total_kept} vendors against {', '.join(days) or 'your date'}. "
         + (f"{len(unavailable)} are booked on at least one day: {'; '.join(unavailable[:4])}{'…' if len(unavailable) > 4 else ''}. " if unavailable else "All are free. ")
-        + "This is a simulated calendar; real calendars come from vendor onboarding.",
+        + ("Real listings: availability is unknown until the vendor replies. " if any(r["v"]["source"] == "osm" for rows in candidates.values() for r in rows) else "")
+        + "Sample vendors use a simulated calendar; real calendars come from vendor onboarding.",
         "info", {"simulated": True})
 
     # 7. Score
@@ -287,6 +305,7 @@ def run_agent(req: RunIn):
             scored.append({
                 "id": v["id"], "name": v["name"], "area": v["area"], "category": cat, "tier": v["tier"],
                 "rating": v["rating"], "estCost": r["cost"], "fit": r["fit"], "score": s, "breakdown": parts,
+                "source": v["source"], "rated": v["rating"] is not None, "phone": v.get("phone"),
                 "reasons": reasons_for(v, r["cost"], alloc.get(cat, 0), r["fit"]),
             })
         # 8. top 5. If the couple must stay within budget, options that fit always rank above ones that do not.
@@ -315,6 +334,9 @@ def run_agent(req: RunIn):
         "categoriesOverAllocation": stretch,
         "categoriesTheCoupleAlreadyFinishedAndIWillNotTouch": [LABELS[c] for c in skipped],
         "categoriesWhereEveryVendorIsBookedOnYourDates": [LABELS[c] for c in cats if not shortlists.get(c)],
+        "topPicksThatAreRealListingsWithNoRatingsYet": [LABELS[c] for c in cats if shortlists.get(c) and shortlists[c][0]["source"] == "osm"],
+        "topPicksThatAreSampleVendors": [LABELS[c] for c in cats if shortlists.get(c) and shortlists[c][0]["source"] == "sample"],
+        "noteOnPrices": "For real listings the cost is a typical estimate for the category, not a quote.",
     }
     summary, used_llm_summary = write_summary(facts)
     return {"events": events, "envelope": env, "allocation": alloc, "shortlists": shortlists, "preferences": prefs,
@@ -336,7 +358,7 @@ def write_summary(facts: dict) -> tuple[str, bool]:
         text = chat_text(
             "You are Partner's wedding planning agent. Write a short summary for the bride in plain, warm English, max 110 words. "
             "Use ONLY the facts in the JSON; do not invent vendors, prices or availability, and copy amounts exactly as written. "
-            "Do not open with a greeting. State the feasibility honestly, say whether the top picks fit the budget "
+            "Do not open with a greeting. Be clear which top picks are real listings (no ratings or quotes yet, costs are typical estimates) and which are sample vendors. State the feasibility honestly, say whether the top picks fit the budget "
             "and which categories are the problem, and end with the next step: requesting quotes from shortlisted vendors.",
             str(facts),
         )
