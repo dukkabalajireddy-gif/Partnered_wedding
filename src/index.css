@@ -146,8 +146,10 @@ input::placeholder, textarea::placeholder {
 
 /* ─── Background art ──────────────────────────────────────────────────────── */
 
-/* Repeating lotus + diamond motif, very light so text stays readable */
-.paisley-bg {
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140' viewBox='0 0 140 140'><g fill='none' stroke='%23a8213b' stroke-opacity='.16' stroke-width='1.1'><g transform='translate(70 70)'><ellipse rx='5' ry='15' cy='-15'/><ellipse rx='5' ry='15' cy='-15' transform='rotate(45)'/><ellipse rx='5' ry='15' cy='-15' transform='rotate(90)'/><ellipse rx='5' ry='15' cy='-15' transform='rotate(135)'/><ellipse rx='5' ry='15' cy='-15' transform='rotate(180)'/><ellipse rx='5' ry='15' cy='-15' transform='rotate(225)'/><ellipse rx='5' ry='15' cy='-15' transform='rotate(270)'/><ellipse rx='5' ry='15' cy='-15' transform='rotate(315)'/><circle r='5'/></g><path d='M0 0 L12 12 L0 24 L-12 12Z' transform='translate(0 0)'/><path d='M140 0 L152 12 L140 24 L128 12Z' transform='translate(0 0)'/><path d='M0 140 L12 152 L0 164 L-12 152Z' transform='translate(0 -24)'/><path d='M140 140 L152 152 L140 164 L128 152Z' transform='translate(0 -24)'/></g><g fill='%23c08a0c' fill-opacity='.35'><circle cx='70' cy='14' r='1.6'/><circle cx='70' cy='126' r='1.6'/><circle cx='14' cy='70' r='1.6'/><circle cx='126' cy='70' r='1.6'/></g></svg>");
-  background-size: 140px 140px;
+/* Rangoli / lotus design (from the supplied artwork, recoloured to the site's maroon) */
+.rangoli-bg {
+  background-image: url("./assets/rangoli.png");
+  background-size: 440px auto;
+  background-repeat: repeat;
+  opacity: 0.13;
 }

@@ -24,7 +24,12 @@ interface WeddingPlan {
   name: string; partnerName: string; date: string;
   location: string; budget: number; guestCount: number;
   rituals: string[];
+  schedule: ScheduleDay[];
+  creativeDirector: boolean;
 }
+
+// One day of the celebrations and the events held on it.
+interface ScheduleDay { date: string; rituals: string[]; }
 
 // ─── Rituals (grouped by tradition; the same ritual can appear in more than one group) ───
 
@@ -212,36 +217,206 @@ const INITIAL_THREADS: Thread[] = [
 
 // ─── Background art ───────────────────────────────────────────────────────────
 
-// A rangoli-style mandala: petal rings, paisley (mango) leaves and a ring of dots.
-function Mandala({ className, style }: { className?: string; style?: React.CSSProperties }) {
-  const rotations = (n: number) => Array.from({ length: n }, (_, i) => (360 / n) * i);
-  return (
-    <svg viewBox="-100 -100 200 200" className={className} style={style} aria-hidden="true">
-      <g fill="none" stroke="#a8213b" strokeWidth="0.7">
-        <circle r="96" /><circle r="90" strokeDasharray="1 3" />
-        {rotations(36).map((a) => <circle key={`d${a}`} cx="0" cy="-93" r="1.3" fill="#c08a0c" stroke="none" transform={`rotate(${a})`} />)}
-        {rotations(24).map((a) => <path key={`p${a}`} d="M0 -88 C5 -80 5 -72 0 -66 C-5 -72 -5 -80 0 -88Z" transform={`rotate(${a})`} />)}
-        <circle r="62" />
-        {rotations(12).map((a) => <path key={`m${a}`} d="M0 -60 C16 -52 20 -34 6 -24 C-2 -20 -8 -26 -4 -32 C-1 -36 3 -34 2 -31" stroke="#c08a0c" transform={`rotate(${a})`} />)}
-        <circle r="30" />
-        {rotations(16).map((a) => <ellipse key={`e${a}`} cx="0" cy="-22" rx="4" ry="9" transform={`rotate(${a})`} />)}
-        <circle r="10" /><circle r="4" fill="#c08a0c" stroke="none" />
-      </g>
-    </svg>
-  );
-}
-
 // Fixed, low-opacity art that sits behind the page content.
 function Backdrop() {
   const sparks = [[8, 18], [22, 72], [38, 9], [55, 84], [71, 22], [88, 60], [93, 12], [14, 46], [64, 52], [47, 33]];
   return (
     <div className="fixed inset-0 pointer-events-none overflow-hidden" style={{ zIndex: 0 }} aria-hidden="true">
-      <div className="absolute inset-0 paisley-bg" />
-      <Mandala className="absolute" style={{ width: 520, height: 520, top: -200, left: -200, opacity: 0.22 }} />
-      <Mandala className="absolute" style={{ width: 640, height: 640, bottom: -300, right: -240, opacity: 0.2 }} />
+      <div className="absolute inset-0 rangoli-bg" />
       {sparks.map(([x, y], i) => (
         <span key={i} className="absolute" style={{ left: `${x}%`, top: `${y}%`, fontSize: 14 + (i % 3) * 5, color: "#e0b015", WebkitTextFillColor: "#e0b015", background: "none", animation: `twinkle 2.8s ease-in-out ${i * 0.37}s infinite` }}>✦</span>
       ))}
+    </div>
+  );
+}
+
+// ─── Events: picker, day-by-day schedule, creative director, editor ───────────
+
+const CHIP_ON = { background: "linear-gradient(135deg, #a8213b, #881a30)", color: "#fff", border: "1px solid #881a30" };
+const CHIP_OFF = { background: "#fff", color: "#1a1a1a", border: "1px solid #f5c6d0" };
+const CHIP_ELSEWHERE = { background: "#fdf2f4", color: "#444", border: "1px dashed #c98a98" };
+const INPUT_STYLE = { border: "1px solid #f5c6d0", background: "#fdf2f4" };
+const PRIMARY_BTN = { background: "linear-gradient(135deg, #a8213b, #881a30)" };
+
+function isoDate(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function nextDay(s: string) {
+  if (!s) return "";
+  const d = new Date(`${s}T00:00:00`);
+  d.setDate(d.getDate() + 1);
+  return isoDate(d);
+}
+function formatDay(s: string) {
+  return new Date(`${s}T00:00:00`).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+}
+function pruneSchedule(days: ScheduleDay[], rituals: string[]): ScheduleDay[] {
+  return days.map((d) => ({ ...d, rituals: d.rituals.filter((r) => rituals.includes(r)) }));
+}
+// Returns a message while the schedule is incomplete, or null when it is ready to save.
+// Pass hideUnassigned to skip the "assign every event" message (ScheduleBuilder already lists them),
+// while the plain call still returns it so Continue/Save stay disabled.
+function scheduleError(rituals: string[], days: ScheduleDay[], hideUnassigned = false): string | null {
+  if (rituals.length === 0) return "Pick at least one event.";
+  if (days.length === 0) return "Add at least one day.";
+  if (days.some((d) => !d.date)) return "Pick a date for every day.";
+  if (new Set(days.map((d) => d.date)).size !== days.length) return "Two days have the same date.";
+  if (rituals.some((r) => !days.some((d) => d.rituals.includes(r)))) return hideUnassigned ? null : "Assign every event to a day.";
+  return null;
+}
+function finalizeSchedule(days: ScheduleDay[]): ScheduleDay[] {
+  return days.filter((d) => d.rituals.length > 0).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function RitualPicker({ selected, onToggle, onClear, maxHeight = "30vh" }: {
+  selected: string[]; onToggle: (r: string) => void; onClear: () => void; maxHeight?: string;
+}) {
+  return (
+    <div>
+      <div className="flex items-center justify-between">
+        <label className="text-xs font-medium uppercase tracking-wider" style={{ color: "#a8213b" }}>Events planned</label>
+        <span className="text-sm font-medium" style={{ color: "#a8213b" }}>
+          {selected.length} selected
+          {selected.length > 0 && <button className="ml-3 underline" onClick={onClear}>Clear</button>}
+        </span>
+      </div>
+      <div className="mt-2 space-y-4 overflow-y-auto pr-2" style={{ maxHeight }}>
+        {RITUAL_GROUPS.map((g) => (
+          <div key={g.title}>
+            <div className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "#1a1a1a" }}>{g.title}</div>
+            <div className="flex flex-wrap gap-2">
+              {g.items.map((r) => {
+                const on = selected.includes(r);
+                return (
+                  <button key={r} onClick={() => onToggle(r)} aria-pressed={on} className="text-sm px-3 py-1.5 rounded-full transition-all" style={on ? CHIP_ON : CHIP_OFF}>
+                    {on ? "✓ " : ""}{r}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Day by day: pick a date, then tap the events that happen on it.
+function ScheduleBuilder({ rituals, days, onChange }: { rituals: string[]; days: ScheduleDay[]; onChange: (d: ScheduleDay[]) => void }) {
+  const today = isoDate(new Date());
+  const dayOf = (r: string) => days.findIndex((d) => d.rituals.includes(r));
+  const unassigned = rituals.filter((r) => dayOf(r) === -1);
+
+  const toggleOnDay = (idx: number, r: string) =>
+    onChange(days.map((d, i) =>
+      i === idx
+        ? { ...d, rituals: d.rituals.includes(r) ? d.rituals.filter((x) => x !== r) : [...d.rituals, r] }
+        : { ...d, rituals: d.rituals.filter((x) => x !== r) }, // an event can only be on one day
+    ));
+  const setDate = (idx: number, date: string) => onChange(days.map((d, i) => (i === idx ? { ...d, date } : d)));
+  const addDay = () => onChange([...days, { date: days.length ? nextDay(days[days.length - 1].date) : "", rituals: [] }]);
+  const removeDay = (idx: number) => onChange(days.filter((_, i) => i !== idx));
+  const addRemaining = (idx: number) => onChange(days.map((d, i) => (i === idx ? { ...d, rituals: [...d.rituals, ...unassigned] } : d)));
+
+  return (
+    <div className="space-y-4">
+      {days.map((d, idx) => (
+        <div key={idx} className="rounded-2xl p-4 space-y-3" style={{ border: "1px solid #f5c6d0", background: "#fffafb" }}>
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-semibold shrink-0" style={{ color: "#a8213b" }}>Day {idx + 1}</span>
+            <input type="date" min={today} value={d.date} onChange={(e) => setDate(idx, e.target.value)}
+              className="flex-1 rounded-xl px-3 py-2 text-sm focus:outline-none" style={INPUT_STYLE} />
+            {days.length > 1 && (
+              <button onClick={() => removeDay(idx)} aria-label={`Remove day ${idx + 1}`} className="text-base px-2" style={{ color: "#444" }}>✕</button>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {rituals.map((r) => {
+              const at = dayOf(r);
+              return (
+                <button key={r} onClick={() => toggleOnDay(idx, r)} aria-pressed={at === idx}
+                  className="text-sm px-3 py-1.5 rounded-full transition-all"
+                  style={at === idx ? CHIP_ON : at === -1 ? CHIP_OFF : CHIP_ELSEWHERE}>
+                  {at === idx ? "✓ " : ""}{r}{at > -1 && at !== idx ? ` · Day ${at + 1}` : ""}
+                </button>
+              );
+            })}
+          </div>
+          {unassigned.length > 0 && (
+            <button onClick={() => addRemaining(idx)} className="text-sm underline" style={{ color: "#a8213b" }}>Put all remaining events on this day</button>
+          )}
+        </div>
+      ))}
+      <button onClick={addDay} className="w-full rounded-xl py-2.5 text-sm font-medium" style={{ border: "1px dashed #a8213b", color: "#a8213b" }}>+ Add another day</button>
+      <div className="text-sm font-medium" style={{ color: unassigned.length ? "#a8213b" : "#2f6b1f" }}>
+        {unassigned.length ? `${unassigned.length} still need a day: ${unassigned.join(", ")}` : "✓ Every event has a day"}
+      </div>
+    </div>
+  );
+}
+
+function CreativeDirectorChoice({ value, onChange }: { value: boolean | undefined; onChange: (v: boolean) => void }) {
+  return (
+    <div className="rounded-2xl p-4 space-y-3" style={{ background: "linear-gradient(135deg, #fdf2f4, #fefdf0)", border: "1px solid #f5c6d0" }}>
+      <div>
+        <div className="text-lg font-semibold text-gray-800">Would you like a creative director for your wedding?</div>
+        <p className="text-sm text-gray-600 mt-1">
+          A creative director shapes the overall look and feel across all your events (theme, décor, styling and how the vendors work together) so everything feels like one story.
+        </p>
+      </div>
+      <div className="flex gap-3">
+        {([[true, "Yes, I'd like one"], [false, "No, I'll manage"]] as const).map(([v, label]) => (
+          <button key={label} onClick={() => onChange(v)} aria-pressed={value === v}
+            className="flex-1 rounded-xl py-2.5 text-sm font-medium transition-all" style={value === v ? CHIP_ON : CHIP_OFF}>
+            {value === v ? "✓ " : ""}{label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Edit your events, the day-by-day schedule and the creative director choice after onboarding.
+function EditEventsModal({ plan, onSave, onClose }: { plan: WeddingPlan; onSave: (p: WeddingPlan) => void; onClose: () => void }) {
+  const [rituals, setRituals] = useState<string[]>(plan.rituals);
+  const [days, setDays] = useState<ScheduleDay[]>(plan.schedule.length ? plan.schedule : [{ date: plan.date, rituals: [] }]);
+  const [director, setDirector] = useState<boolean>(plan.creativeDirector);
+
+  const toggleRitual = (r: string) => {
+    const next = rituals.includes(r) ? rituals.filter((x) => x !== r) : [...rituals, r];
+    setRituals(next);
+    setDays((d) => pruneSchedule(d, next));
+  };
+  const error = scheduleError(rituals, days);
+  const message = scheduleError(rituals, days, true);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.45)" }} onClick={onClose}>
+      <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl bg-white p-8 space-y-6" style={{ borderTop: "3px solid #c08a0c" }} onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between">
+          <div>
+            <h3 className="text-2xl font-medium text-gray-800">Edit your events</h3>
+            <p className="text-sm text-gray-600 mt-0.5">Add or remove events, and move them between days.</p>
+          </div>
+          <button onClick={onClose} aria-label="Close" className="text-xl" style={{ color: "#444" }}>✕</button>
+        </div>
+
+        <RitualPicker selected={rituals} onToggle={toggleRitual} onClear={() => { setRituals([]); setDays((d) => pruneSchedule(d, [])); }} maxHeight="26vh" />
+
+        <div>
+          <div className="text-xs font-medium uppercase tracking-wider mb-2" style={{ color: "#a8213b" }}>Schedule</div>
+          <ScheduleBuilder rituals={rituals} days={days} onChange={setDays} />
+        </div>
+
+        <CreativeDirectorChoice value={director} onChange={setDirector} />
+
+        {message && <div className="text-sm font-medium" style={{ color: "#a8213b" }}>{message}</div>}
+        <div className="flex gap-3">
+          <button className="flex-1 rounded-xl py-3 font-medium text-sm" style={{ border: "1px solid #f5c6d0", color: "#a8213b" }} onClick={onClose}>Cancel</button>
+          <button className="flex-[2] text-white rounded-xl py-3 font-medium text-sm disabled:opacity-40" style={PRIMARY_BTN} disabled={!!error}
+            onClick={() => onSave({ ...plan, rituals, schedule: finalizeSchedule(days), creativeDirector: director })}>Save changes</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -250,14 +425,25 @@ function Backdrop() {
 
 function OnboardingScreen({ onComplete }: { onComplete: (p: WeddingPlan) => void }) {
   const [step, setStep] = useState(0);
-  const [form, setForm] = useState<Partial<WeddingPlan>>({ rituals: [] });
+  const [form, setForm] = useState<Partial<WeddingPlan>>({ rituals: [], schedule: [] });
   const set = (k: keyof WeddingPlan, v: string | number) => setForm((f) => ({ ...f, [k]: v }));
   const rituals = form.rituals ?? [];
+  const days = form.schedule ?? [];
   const toggleRitual = (r: string) =>
     setForm((f) => {
       const cur = f.rituals ?? [];
-      return { ...f, rituals: cur.includes(r) ? cur.filter((x) => x !== r) : [...cur, r] };
+      const next = cur.includes(r) ? cur.filter((x) => x !== r) : [...cur, r];
+      return { ...f, rituals: next, schedule: pruneSchedule(f.schedule ?? [], next) };
     });
+  const clearRituals = () => setForm((f) => ({ ...f, rituals: [], schedule: pruneSchedule(f.schedule ?? [], []) }));
+
+  // Moving from "events" to "schedule": start with one day on the wedding date.
+  const goToSchedule = () => {
+    setForm((f) => ({ ...f, schedule: f.schedule?.length ? f.schedule : [{ date: f.date ?? "", rituals: [] }] }));
+    setStep(2);
+  };
+  const dayError = scheduleError(rituals, days);
+  const dayMessage = scheduleError(rituals, days, true);
 
   return (
     <div className="min-h-screen flex items-center justify-center relative" style={{ background: "linear-gradient(135deg, #fdf2f4 0%, #fefdf0 50%, #fdf8f0 100%)" }}>
@@ -274,7 +460,7 @@ function OnboardingScreen({ onComplete }: { onComplete: (p: WeddingPlan) => void
         </div>
 
         <div className="flex items-center justify-center gap-2 mb-8">
-          {[0, 1, 2].map((i) => (
+          {[0, 1, 2, 3].map((i) => (
             <div key={i} className="h-1 rounded-full transition-all duration-300"
               style={{ width: i <= step ? 48 : 24, background: i <= step ? "#a8213b" : "#f5c6d0" }} />
           ))}
@@ -291,13 +477,12 @@ function OnboardingScreen({ onComplete }: { onComplete: (p: WeddingPlan) => void
                 {(["name", "partnerName"] as const).map((k, i) => (
                   <div key={k}>
                     <label className="text-xs font-medium uppercase tracking-wider" style={{ color: "#a8213b" }}>{i === 0 ? "Bride's name" : "Groom's name"}</label>
-                    <input className="mt-1 w-full rounded-xl px-4 py-3 text-sm focus:outline-none" style={{ border: "1px solid #f5c6d0", background: "#fdf2f4" }}
+                    <input className="mt-1 w-full rounded-xl px-4 py-3 text-sm focus:outline-none" style={INPUT_STYLE}
                       placeholder={i === 0 ? "e.g. Priya" : "e.g. Arjun"} value={(form[k] as string) ?? ""} onChange={(e) => set(k, e.target.value)} />
                   </div>
                 ))}
               </div>
-              <button className="w-full text-white rounded-xl py-3 font-medium text-sm disabled:opacity-40"
-                style={{ background: "linear-gradient(135deg, #a8213b, #881a30)" }}
+              <button className="w-full text-white rounded-xl py-3 font-medium text-sm disabled:opacity-40" style={PRIMARY_BTN}
                 disabled={!form.name || !form.partnerName} onClick={() => setStep(1)}>Continue →</button>
             </div>
           )}
@@ -306,54 +491,25 @@ function OnboardingScreen({ onComplete }: { onComplete: (p: WeddingPlan) => void
             <div className="space-y-5">
               <div>
                 <h2 className="text-2xl font-medium text-gray-800 mb-1">When, what and where?</h2>
-                <p className="text-sm text-gray-400">Your date, the events you're planning, and the city. We'll find vendors near you.</p>
+                <p className="text-sm text-gray-400">Your wedding date, the events you're planning, and the city. We'll find vendors near you.</p>
               </div>
               <div className="space-y-3">
                 <div>
                   <label className="text-xs font-medium uppercase tracking-wider" style={{ color: "#a8213b" }}>Wedding Date</label>
-                  <input type="date" min={new Date().toISOString().split("T")[0]} className="mt-1 w-full rounded-xl px-4 py-3 text-sm focus:outline-none" style={{ border: "1px solid #f5c6d0", background: "#fdf2f4" }}
+                  <input type="date" min={isoDate(new Date())} className="mt-1 w-full rounded-xl px-4 py-3 text-sm focus:outline-none" style={INPUT_STYLE}
                     value={form.date ?? ""} onChange={(e) => set("date", e.target.value)} />
                 </div>
                 <div>
                   <label className="text-xs font-medium uppercase tracking-wider" style={{ color: "#a8213b" }}>City / Location</label>
-                  <input className="mt-1 w-full rounded-xl px-4 py-3 text-sm focus:outline-none" style={{ border: "1px solid #f5c6d0", background: "#fdf2f4" }}
+                  <input className="mt-1 w-full rounded-xl px-4 py-3 text-sm focus:outline-none" style={INPUT_STYLE}
                     placeholder="e.g. Delhi, Jaipur, Udaipur, Goa…" value={form.location ?? ""} onChange={(e) => set("location", e.target.value)} />
                 </div>
-                <div>
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-medium uppercase tracking-wider" style={{ color: "#a8213b" }}>Events planned</label>
-                    <span className="text-sm font-medium" style={{ color: "#a8213b" }}>
-                      {rituals.length} selected
-                      {rituals.length > 0 && (
-                        <button className="ml-3 underline" onClick={() => setForm((f) => ({ ...f, rituals: [] }))}>Clear</button>
-                      )}
-                    </span>
-                  </div>
-                  <div className="mt-2 space-y-4 overflow-y-auto pr-2" style={{ maxHeight: "30vh" }}>
-                    {RITUAL_GROUPS.map((g) => (
-                      <div key={g.title}>
-                        <div className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "#1a1a1a" }}>{g.title}</div>
-                        <div className="flex flex-wrap gap-2">
-                          {g.items.map((r) => {
-                            const on = rituals.includes(r);
-                            return (
-                              <button key={r} onClick={() => toggleRitual(r)} aria-pressed={on}
-                                className="text-sm px-3 py-1.5 rounded-full transition-all"
-                                style={on ? { background: "linear-gradient(135deg, #a8213b, #881a30)", color: "#fff", border: "1px solid #881a30" } : { background: "#fff", color: "#1a1a1a", border: "1px solid #f5c6d0" }}>
-                                {on ? "✓ " : ""}{r}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+                <RitualPicker selected={rituals} onToggle={toggleRitual} onClear={clearRituals} />
               </div>
               <div className="flex gap-3">
                 <button className="flex-1 rounded-xl py-3 font-medium text-sm" style={{ border: "1px solid #f5c6d0", color: "#a8213b" }} onClick={() => setStep(0)}>Back</button>
-                <button className="flex-[2] text-white rounded-xl py-3 font-medium text-sm disabled:opacity-40" style={{ background: "linear-gradient(135deg, #a8213b, #881a30)" }}
-                  disabled={!form.date || !form.location || rituals.length === 0} onClick={() => setStep(2)}>Continue →</button>
+                <button className="flex-[2] text-white rounded-xl py-3 font-medium text-sm disabled:opacity-40" style={PRIMARY_BTN}
+                  disabled={!form.date || !form.location || rituals.length === 0} onClick={goToSchedule}>Continue →</button>
               </div>
             </div>
           )}
@@ -361,17 +517,33 @@ function OnboardingScreen({ onComplete }: { onComplete: (p: WeddingPlan) => void
           {step === 2 && (
             <div className="space-y-5">
               <div>
+                <h2 className="text-2xl font-medium text-gray-800 mb-1">Which event on which day?</h2>
+                <p className="text-sm text-gray-400">Pick the dates first, then tap the events that happen on each day. Your wedding date is {form.date ? formatDay(form.date) : "not set"}.</p>
+              </div>
+              <ScheduleBuilder rituals={rituals} days={days} onChange={(d) => setForm((f) => ({ ...f, schedule: d }))} />
+              {dayMessage && <div className="text-sm font-medium" style={{ color: "#a8213b" }}>{dayMessage}</div>}
+              <div className="flex gap-3">
+                <button className="flex-1 rounded-xl py-3 font-medium text-sm" style={{ border: "1px solid #f5c6d0", color: "#a8213b" }} onClick={() => setStep(1)}>Back</button>
+                <button className="flex-[2] text-white rounded-xl py-3 font-medium text-sm disabled:opacity-40" style={PRIMARY_BTN}
+                  disabled={!!dayError} onClick={() => setStep(3)}>Continue →</button>
+              </div>
+            </div>
+          )}
+
+          {step === 3 && (
+            <div className="space-y-5">
+              <div>
                 <h2 className="text-2xl font-medium text-gray-800 mb-1">Budget and guests</h2>
                 <p className="text-sm text-gray-400">Our AI will split your budget across your events and categories.</p>
               </div>
               <div>
                 <label className="text-xs font-medium uppercase tracking-wider" style={{ color: "#a8213b" }}>Expected Guests</label>
-                <input type="number" className="mt-1 w-full rounded-xl px-4 py-3 text-sm focus:outline-none" style={{ border: "1px solid #f5c6d0", background: "#fdf2f4" }}
+                <input type="number" className="mt-1 w-full rounded-xl px-4 py-3 text-sm focus:outline-none" style={INPUT_STYLE}
                   placeholder="e.g. 300" value={form.guestCount ?? ""} onChange={(e) => set("guestCount", Number(e.target.value))} />
               </div>
               <div>
                 <label className="text-xs font-medium uppercase tracking-wider" style={{ color: "#a8213b" }}>Total Budget (INR ₹)</label>
-                <input type="number" className="mt-1 w-full rounded-xl px-4 py-3 text-sm focus:outline-none" style={{ border: "1px solid #f5c6d0", background: "#fdf2f4" }}
+                <input type="number" className="mt-1 w-full rounded-xl px-4 py-3 text-sm focus:outline-none" style={INPUT_STYLE}
                   placeholder="e.g. 2500000" value={form.budget ?? ""} onChange={(e) => set("budget", Number(e.target.value))} />
                 <div className="flex flex-wrap gap-2 mt-3">
                   {[["₹5,00,000", 500000], ["₹10,00,000", 1000000], ["₹25,00,000", 2500000], ["₹50,00,000", 5000000]].map(([label, val]) => (
@@ -381,10 +553,12 @@ function OnboardingScreen({ onComplete }: { onComplete: (p: WeddingPlan) => void
                   ))}
                 </div>
               </div>
+              <CreativeDirectorChoice value={form.creativeDirector} onChange={(v) => setForm((f) => ({ ...f, creativeDirector: v }))} />
               <div className="flex gap-3">
-                <button className="flex-1 rounded-xl py-3 font-medium text-sm" style={{ border: "1px solid #f5c6d0", color: "#a8213b" }} onClick={() => setStep(1)}>Back</button>
-                <button className="flex-[2] text-white rounded-xl py-3 font-medium text-sm disabled:opacity-40 sparkle-btn" style={{ background: "linear-gradient(135deg, #a8213b, #881a30)" }}
-                  disabled={!form.budget || !form.guestCount} onClick={() => onComplete(form as WeddingPlan)}>Shubh Aarambh ✨</button>
+                <button className="flex-1 rounded-xl py-3 font-medium text-sm" style={{ border: "1px solid #f5c6d0", color: "#a8213b" }} onClick={() => setStep(2)}>Back</button>
+                <button className="flex-[2] text-white rounded-xl py-3 font-medium text-sm disabled:opacity-40 sparkle-btn" style={PRIMARY_BTN}
+                  disabled={!form.budget || !form.guestCount || form.creativeDirector === undefined}
+                  onClick={() => onComplete({ ...form, schedule: finalizeSchedule(days) } as WeddingPlan)}>Shubh Aarambh ✨</button>
               </div>
             </div>
           )}
@@ -470,8 +644,12 @@ const BOOKING_CHECKS: { category: Category; text: string }[] = [
 ];
 const MANUAL_CHECKS = ["Wedding invitations (shaadi cards) sent", "Honeymoon booked"];
 
-function DashboardTab({ plan, allocation, bookings, setTab }: { plan: WeddingPlan; allocation: BudgetAllocation; bookings: Booking[]; setTab: (t: Tab) => void }) {
+function DashboardTab({ plan, allocation, bookings, setTab, onEditPlan }: {
+  plan: WeddingPlan; allocation: BudgetAllocation; bookings: Booking[]; setTab: (t: Tab) => void; onEditPlan: (p: WeddingPlan) => void;
+}) {
   const [manualDone, setManualDone] = useState<Set<string>>(new Set());
+  const [editing, setEditing] = useState(false);
+  const manualChecks = plan.creativeDirector ? ["Creative director finalised", ...MANUAL_CHECKS] : MANUAL_CHECKS;
 
   const spent = useMemo(() => {
     const r = {} as BudgetAllocation;
@@ -483,7 +661,7 @@ function DashboardTab({ plan, allocation, bookings, setTab }: { plan: WeddingPla
 
   const checklist = [
     ...BOOKING_CHECKS.map((c) => ({ done: bookings.some((b) => b.category === c.category), text: c.text, manual: false })),
-    ...MANUAL_CHECKS.map((t) => ({ done: manualDone.has(t), text: t, manual: true })),
+    ...manualChecks.map((t) => ({ done: manualDone.has(t), text: t, manual: true })),
   ];
   const toggleManual = (t: string) => setManualDone((s) => { const n = new Set(s); n.has(t) ? n.delete(t) : n.add(t); return n; });
   const doneCount = checklist.filter((c) => c.done).length;
@@ -491,7 +669,7 @@ function DashboardTab({ plan, allocation, bookings, setTab }: { plan: WeddingPla
   return (
     <div className="p-8 max-w-5xl space-y-8">
       <div>
-        <h1 className="text-3xl font-medium text-gray-800">Namaste, {plan.name} ✦</h1>
+        <h1 className="text-3xl font-medium text-gray-800">Namaste, {plan.name} <span role="img" aria-label="Namaste">🙏</span></h1>
         <p className="text-sm text-gray-400 mt-1">Here's where your shaadi stands today.</p>
       </div>
 
@@ -563,15 +741,35 @@ function DashboardTab({ plan, allocation, bookings, setTab }: { plan: WeddingPla
         </div>
       </div>
 
-      {plan.rituals?.length > 0 && (
-        <div className="bg-white rounded-2xl p-6" style={{ border: "1px solid #fbe8ec" }}>
-          <h3 className="font-medium text-gray-700 text-sm mb-3">Your Rituals ({plan.rituals.length})</h3>
-          <div className="flex flex-wrap gap-2">
-            {plan.rituals.map((r) => (
-              <span key={r} className="text-sm px-3 py-1 rounded-full" style={{ background: "#fdf2f4", color: "#a8213b", border: "1px solid #f5c6d0" }}>{r}</span>
-            ))}
-          </div>
+      <div className="bg-white rounded-2xl p-6" style={{ border: "1px solid #fbe8ec" }}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-medium text-gray-700 text-sm">Your Events ({plan.rituals.length}) by day</h3>
+          <button onClick={() => setEditing(true)} className="text-sm px-4 py-1.5 rounded-full font-medium" style={{ background: "#fdf2f4", color: "#a8213b", border: "1px solid #f5c6d0" }}>
+            ✎ Edit events
+          </button>
         </div>
+        <div className="space-y-4">
+          {plan.schedule.map((d, i) => (
+            <div key={d.date} className="flex gap-4 items-start">
+              <div className="shrink-0 w-40">
+                <div className="text-sm font-semibold" style={{ color: "#a8213b" }}>Day {i + 1}</div>
+                <div className="text-sm text-gray-600">{formatDay(d.date)}</div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {d.rituals.map((r) => (
+                  <span key={r} className="text-sm px-3 py-1 rounded-full" style={{ background: "#fdf2f4", color: "#a8213b", border: "1px solid #f5c6d0" }}>{r}</span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="mt-5 pt-4 text-sm text-gray-700" style={{ borderTop: "1px solid #fbe8ec" }}>
+          🎨 Creative director: <span className="font-medium">{plan.creativeDirector ? "Yes, we'll help you find one" : "Not needed, you'll manage the look yourself"}</span>
+        </div>
+      </div>
+
+      {editing && (
+        <EditEventsModal plan={plan} onClose={() => setEditing(false)} onSave={(p) => { onEditPlan(p); setEditing(false); }} />
       )}
     </div>
   );
@@ -1206,7 +1404,7 @@ export default function App() {
         <Sidebar tab={tab} setTab={setTab} plan={plan} unreadCount={unreadCount} />
       </div>
       <main className="flex-1 overflow-y-auto relative" style={{ zIndex: 10 }}>
-        {tab === "dashboard" && <DashboardTab plan={plan} allocation={allocation} bookings={bookings} setTab={setTab} />}
+        {tab === "dashboard" && <DashboardTab plan={plan} allocation={allocation} bookings={bookings} setTab={setTab} onEditPlan={setPlan} />}
         {tab === "budget"    && <BudgetTab plan={plan} allocation={allocation} setAllocation={setAllocation} />}
         {tab === "vendors"   && <VendorsTab plan={plan} bookings={bookings} onToggleBook={toggleBook} onMessage={messageVendor} />}
         {tab === "messages"  && <MessagesTab plan={plan} threads={threads} setThreads={setThreads} activeId={activeThreadId} setActiveId={setActiveThreadId} />}
