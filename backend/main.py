@@ -69,12 +69,16 @@ class ChatRequest(BaseModel):
     messages: list[dict]  # [{"role": "user", "content": "..."}]
 
 
+# Routes answer both with and without the "/api" prefix, so they work locally
+# (http://localhost:8000/chat) and behind Vercel's /api rewrite.
 @app.get("/health")
+@app.get("/api/health")
 def health():
     return {"ok": True}
 
 
 @app.post("/chat")
+@app.post("/api/chat")
 def chat(req: ChatRequest):
     if not os.getenv("LLM_API_KEY") or not os.getenv("LLM_BASE_URL") or not MODEL:
         raise HTTPException(500, "Set LLM_API_KEY, LLM_BASE_URL and LLM_MODEL in backend/.env")
