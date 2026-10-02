@@ -268,14 +268,14 @@ function EditEventsModal({ plan, onSave, onClose }: { plan: WeddingPlan; onSave:
   const message = scheduleError(rituals, days, true);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.45)" }} onClick={onClose}>
-      <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl bg-white p-8 space-y-6" style={{ borderTop: "3px solid #c08a0c" }} onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4" style={{ background: "rgba(0,0,0,0.45)" }} onClick={onClose}>
+      <div className="w-full max-w-2xl max-h-[92dvh] overflow-y-auto rounded-t-3xl sm:rounded-3xl bg-white p-5 sm:p-8 space-y-6" style={{ borderTop: "3px solid #c08a0c" }} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between">
           <div>
             <h3 className="text-2xl font-medium text-gray-800">Edit your events</h3>
             <p className="text-sm text-gray-600 mt-0.5">Add or remove events, and move them between days.</p>
           </div>
-          <button onClick={onClose} aria-label="Close" className="text-xl" style={{ color: "#444" }}>✕</button>
+          <button onClick={onClose} aria-label="Close" className="text-xl px-3 py-2 -mr-3 -mt-2" style={{ color: "#444" }}>✕</button>
         </div>
 
         <RitualPicker selected={rituals} onToggle={toggleRitual} onClear={() => { setRituals([]); setDays((d) => pruneSchedule(d, [])); }} maxHeight="26vh" />
@@ -323,10 +323,10 @@ function OnboardingScreen({ cities, onComplete }: { cities: CityInfo[]; onComple
   const dayMessage = scheduleError(rituals, days, true);
 
   return (
-    <div className="min-h-screen flex items-center justify-center relative" style={{ background: "linear-gradient(135deg, #fdf2f4 0%, #fefdf0 50%, #fdf8f0 100%)" }}>
+    <div className="min-h-dvh flex items-center justify-center relative" style={{ background: "linear-gradient(135deg, #fdf2f4 0%, #fefdf0 50%, #fdf8f0 100%)" }}>
       <Backdrop />
-      <div className="w-full max-w-lg px-6 py-10 relative" style={{ zIndex: 10 }}>
-        <div className="text-center mb-10">
+      <div className="w-full max-w-lg px-4 sm:px-6 py-6 sm:py-10 relative" style={{ zIndex: 10 }}>
+        <div className="text-center mb-6 sm:mb-10">
           <div className="inline-flex items-center gap-2 mb-2">
             <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "#a8213b" }}>
               <span className="text-white text-xs font-bold">P</span>
@@ -343,7 +343,7 @@ function OnboardingScreen({ cities, onComplete }: { cities: CityInfo[]; onComple
           ))}
         </div>
 
-        <div className="bg-white/90 backdrop-blur-sm rounded-3xl p-8" style={{ border: "1px solid #f5c6d0" }}>
+        <div className="bg-white/90 backdrop-blur-sm rounded-3xl p-5 sm:p-8" style={{ border: "1px solid #f5c6d0" }}>
           {step === 0 && (
             <div className="space-y-5">
               <div>
@@ -575,31 +575,31 @@ function DashboardTab({ plan, allocation, bookings, checklistDone, onToggleCheck
   const doneCount = checklist.filter((c) => checklistDone.has(c.id)).length;
 
   return (
-    <div className="p-8 max-w-7xl space-y-6">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl space-y-5 sm:space-y-6">
       <div>
         <h1 className="text-3xl font-medium text-gray-800">Namaste, {plan.name} <span role="img" aria-label="Namaste">🙏</span></h1>
         <p className="text-sm text-gray-600 mt-1">Here's where your shaadi stands today. Tick off what you've finished, and the agent works on the rest.</p>
       </div>
 
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         {[
           { label: "Total Budget",  value: inr(plan.budget),              sub: "set by you",                color: "#a8213b" },
           { label: "Spent So Far",  value: inr(totalSpent),               sub: `${Math.round((totalSpent/plan.budget)*100)}% of budget`, color: "#881a30" },
           { label: "Remaining",     value: inr(plan.budget - totalSpent), sub: "to allocate",               color: "#c08a0c" },
           { label: "Days Left",     value: String(Math.max(0, Math.ceil((new Date(plan.date).getTime() - Date.now()) / 86400000))), sub: "until the big day", color: "#c93a52" },
         ].map((s) => (
-          <div key={s.label} className="bg-white rounded-2xl p-5" style={{ border: "1px solid #fbe8ec" }}>
+          <div key={s.label} className="bg-white rounded-2xl p-4 sm:p-5 min-w-0" style={{ border: "1px solid #fbe8ec" }}>
             <div className="text-xs text-gray-600 mb-1">{s.label}</div>
-            <div className="text-xl font-semibold" style={{ color: s.color }}>{s.value}</div>
+            <div className="text-lg sm:text-xl font-semibold break-words" style={{ color: s.color }}>{s.value}</div>
             <div className="text-xs text-gray-600 mt-1">{s.sub}</div>
           </div>
         ))}
       </div>
 
-      <div className="grid grid-cols-12 gap-6 items-start">
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 sm:gap-6 items-start">
         {/* Left: what the couple controls */}
-        <div className="col-span-5 space-y-6">
-          <div className="bg-white rounded-2xl p-6" style={{ border: "1px solid #fbe8ec" }}>
+        <div className="xl:col-span-5 space-y-5 sm:space-y-6 min-w-0">
+          <div className="bg-white rounded-2xl p-4 sm:p-6" style={{ border: "1px solid #fbe8ec" }}>
             <div className="flex items-center justify-between mb-1">
               <h3 className="font-medium text-gray-700 text-sm">Shaadi Checklist</h3>
               <span className="text-xs text-gray-600">{doneCount} of {checklist.length} done</span>
@@ -610,7 +610,7 @@ function DashboardTab({ plan, allocation, bookings, checklistDone, onToggleCheck
                 const done = checklistDone.has(c.id);
                 return (
                   <button key={c.id} onClick={() => onToggleCheck(c.id)} aria-pressed={done}
-                    className="flex items-center gap-3 text-left w-full rounded-lg px-2 py-1.5 transition-colors hover:bg-[#fdf2f4]">
+                    className="flex items-center gap-3 text-left w-full rounded-lg px-2 py-2.5 min-h-11 transition-colors hover:bg-[#fdf2f4]">
                     <div className="w-5 h-5 rounded-full flex items-center justify-center shrink-0"
                       style={done ? { background: "#a8213b" } : { border: "2px solid #c98a98" }}>
                       {done && <span className="text-white text-xs">✓</span>}
@@ -623,10 +623,10 @@ function DashboardTab({ plan, allocation, bookings, checklistDone, onToggleCheck
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl p-6" style={{ border: "1px solid #fbe8ec" }}>
+          <div className="bg-white rounded-2xl p-4 sm:p-6" style={{ border: "1px solid #fbe8ec" }}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-medium text-gray-700 text-sm">Budget by Category</h3>
-              <button onClick={() => setTab("budget")} className="text-xs px-2 py-1 rounded-full" style={{ background: "#fdf2f4", color: "#a8213b" }}>View all →</button>
+              <button onClick={() => setTab("budget")} className="text-sm px-4 py-2.5 rounded-full" style={{ background: "#fdf2f4", color: "#a8213b" }}>View all →</button>
             </div>
             <div className="space-y-3">
               {(Object.keys(allocation) as Category[]).slice(0, 6).map((k) => (
@@ -643,10 +643,10 @@ function DashboardTab({ plan, allocation, bookings, checklistDone, onToggleCheck
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl p-6" style={{ border: "1px solid #fbe8ec" }}>
+          <div className="bg-white rounded-2xl p-4 sm:p-6" style={{ border: "1px solid #fbe8ec" }}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-medium text-gray-700 text-sm">Your Events ({plan.rituals.length}) by day</h3>
-              <button onClick={() => setEditing(true)} className="text-sm px-4 py-1.5 rounded-full font-medium" style={{ background: "#fdf2f4", color: "#a8213b", border: "1px solid #f5c6d0" }}>
+              <button onClick={() => setEditing(true)} className="text-sm px-4 py-2.5 sm:py-1.5 rounded-full font-medium" style={{ background: "#fdf2f4", color: "#a8213b", border: "1px solid #f5c6d0" }}>
                 ✎ Edit events
               </button>
             </div>
@@ -669,7 +669,7 @@ function DashboardTab({ plan, allocation, bookings, checklistDone, onToggleCheck
         </div>
 
         {/* Right: the agent gets the wide area */}
-        <div className="col-span-7">
+        <div className="xl:col-span-7 min-w-0">
           <AgentPanel plan={plan} agent={agent} setAgent={setAgent} setAllocation={setAllocation} completed={doneCategories(checklistDone)} onMessage={onMessage} />
         </div>
       </div>
@@ -755,13 +755,13 @@ function BudgetTab({ plan, allocation, setAllocation }: {
   });
 
   return (
-    <div className="p-8 max-w-4xl space-y-6">
-      <div className="flex items-end justify-between">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-4xl space-y-5 sm:space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
         <div>
           <h1 className="text-3xl font-medium text-gray-800">Budget Planner</h1>
-          <p className="text-sm text-gray-400 mt-1">AI-suggested allocations for {plan.guestCount} guests.</p>
+          <p className="text-sm text-gray-600 mt-1">AI-suggested allocations for {plan.guestCount} guests.</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap [&>button]:py-2.5 [&>button]:text-sm">
           <button onClick={() => setLockTotal(!lockTotal)}
             className="text-xs px-4 py-2 rounded-xl transition-colors"
             style={lockTotal ? { background: "#fdf2f4", color: "#a8213b", border: "1px solid #a8213b" } : { color: "#1a1a1a", border: "1px solid #e5e5e5" }}>
@@ -779,7 +779,7 @@ function BudgetTab({ plan, allocation, setAllocation }: {
       </div>
 
       {/* Summary bar */}
-      <div className="bg-white rounded-2xl p-6" style={{ border: "1px solid #fbe8ec" }}>
+      <div className="bg-white rounded-2xl p-4 sm:p-6" style={{ border: "1px solid #fbe8ec" }}>
         <div className="flex items-center justify-between mb-3">
           <span className="text-sm font-medium text-gray-700">Total Allocated</span>
           <span className="text-sm font-semibold" style={{ color: overBudget ? "#c93a52" : "#a8213b" }}>
@@ -797,12 +797,12 @@ function BudgetTab({ plan, allocation, setAllocation }: {
         </div>
 
         {/* Legend */}
-        <div className="mt-4 grid grid-cols-3 gap-2">
+        <div className="mt-4 grid grid-cols-1 min-[420px]:grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-2">
           {(Object.keys(allocation) as Category[]).map((k) => (
-            <div key={k} className="flex items-center gap-2">
+            <div key={k} className="flex items-center gap-2 min-w-0">
               <div className="w-2 h-2 rounded-full shrink-0" style={{ background: CATEGORY_META[k].color }} />
-              <span className="text-xs text-gray-500 truncate">{CATEGORY_META[k].label}</span>
-              <span className="text-xs text-gray-400 ml-auto">{Math.round((allocation[k] / plan.budget) * 100)}%</span>
+              <span className="text-xs text-gray-700 truncate">{CATEGORY_META[k].label}</span>
+              <span className="text-xs text-gray-600 ml-auto">{Math.round((allocation[k] / plan.budget) * 100)}%</span>
             </div>
           ))}
         </div>
@@ -848,7 +848,7 @@ function BudgetTab({ plan, allocation, setAllocation }: {
       )}
 
       {/* Category cards */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {(Object.keys(allocation) as Category[]).map((k) => {
           const isOver = allocation[k] > mlSuggestion[k] * 1.3;
           const isUnder = allocation[k] < mlSuggestion[k] * 0.7;
@@ -875,8 +875,8 @@ function BudgetTab({ plan, allocation, setAllocation }: {
                 <div className="flex items-end justify-between">
                   <div className="text-xl font-semibold" style={{ color: "#a8213b" }}>{inr(allocation[k])}</div>
                   <button onClick={() => { setEditing(k); setEditVal(String(allocation[k])); }}
-                    className="text-xs opacity-0 group-hover:opacity-100 transition-opacity"
-                    style={{ color: "#c08a0c" }}>edit</button>
+                    className="text-sm underline px-3 py-3 -mr-3 -my-2"
+                    style={{ color: "#a8213b" }}>edit</button>
                 </div>
               )}
               <input type="range" min={0} max={plan.budget} step={5000} value={allocation[k]}
@@ -884,7 +884,7 @@ function BudgetTab({ plan, allocation, setAllocation }: {
                 aria-label={`${CATEGORY_META[k].label} budget`}
                 className="budget-slider mt-3 w-full cursor-pointer"
                 style={{ "--c": CATEGORY_META[k].color, "--p": `${(allocation[k] / plan.budget) * 100}%` } as React.CSSProperties} />
-              <div className="text-xs text-gray-400 mt-1">
+              <div className="text-xs text-gray-600 mt-1">
                 {Math.round((allocation[k] / plan.budget) * 100)}% · AI suggests {inr(mlSuggestion[k])}
               </div>
             </div>
@@ -906,7 +906,7 @@ function BudgetTab({ plan, allocation, setAllocation }: {
       {/* Certificate slide-up panel */}
       {certOpen && (
         <div className="fixed inset-0 z-50 flex items-end justify-center" style={{ background: "rgba(0,0,0,0.4)" }} onClick={() => setCertOpen(false)}>
-          <div className="w-full max-w-lg rounded-t-3xl p-8 space-y-5" style={{ background: "#fff", borderTop: "3px solid #c08a0c" }} onClick={(e) => e.stopPropagation()}>
+          <div className="w-full max-w-lg rounded-t-3xl p-5 sm:p-8 space-y-5 max-h-[92dvh] overflow-y-auto" style={{ background: "#fff", borderTop: "3px solid #c08a0c", paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom))" }} onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-xl font-medium text-gray-800">Budget Certificate</h3>
@@ -990,10 +990,10 @@ function ScoreBar({ label, value, shown }: { label: string; value: number; shown
 function CitySelect({ cities, value, onChange }: { cities: CityInfo[]; value: string; onChange: (c: string) => void }) {
   const groups: [string, CityInfo["kind"]][] = [["Metros", "metro"], ["Other major cities", "city"], ["Destination wedding cities", "destination"]];
   return (
-    <label className="inline-flex items-center gap-2 rounded-xl px-4 py-2.5 bg-white" style={{ border: "1px solid #f5c6d0" }}>
-      <span className="text-sm font-semibold" style={{ color: "#a8213b" }}>📍 City</span>
+    <label className="flex w-full sm:w-auto items-center gap-2 rounded-xl px-4 py-3 sm:py-2.5 bg-white" style={{ border: "1px solid #f5c6d0" }}>
+      <span className="text-sm font-semibold shrink-0" style={{ color: "#a8213b" }}>📍 City</span>
       <select value={value} onChange={(e) => onChange(e.target.value)} aria-label="Choose a city"
-        className="text-sm font-medium bg-transparent focus:outline-none cursor-pointer" style={{ color: "#1a1a1a" }}>
+        className="flex-1 min-w-0 text-sm font-medium bg-transparent focus:outline-none cursor-pointer py-3 -my-3" style={{ color: "#1a1a1a" }}>
         {groups.map(([title, kind]) => (
           <optgroup key={kind} label={title}>
             {cities.filter((c) => c.kind === kind).map((c) => <option key={c.name} value={c.name}>{c.name} · {c.state}</option>)}
@@ -1021,39 +1021,39 @@ function VendorDetail({ vendor, plan, saved, booked, onToggleSave, onToggleBook,
   ];
 
   return (
-    <div className="p-8 max-w-5xl space-y-6 relative" style={{ zIndex: 10 }}>
-      <button onClick={onBack} className="text-sm font-medium" style={{ color: "#a8213b" }}>← Back to vendors</button>
+    <div className="p-4 sm:p-6 lg:p-8 max-w-5xl space-y-5 sm:space-y-6 relative" style={{ zIndex: 10 }}>
+      <button onClick={onBack} className="text-base font-medium py-2" style={{ color: "#a8213b" }}>← Back to vendors</button>
 
       <div className="bg-white rounded-3xl overflow-hidden" style={{ border: "1px solid #fbe8ec" }}>
         <div className="relative">
           <img src={`https://images.unsplash.com/${vendor.image}?w=1000&h=320&fit=crop&auto=format`} alt={vendor.name} onError={(e) => { e.currentTarget.style.visibility = "hidden"; }}
-            className="w-full h-60 object-cover" style={{ background: "#fdf2f4" }} />
+            className="w-full h-44 sm:h-60 object-cover" style={{ background: "#fdf2f4" }} />
           <div className="absolute top-4 left-4 text-sm font-medium px-3 py-1 rounded-full" style={{ background: "rgba(255,255,255,0.93)", color: "#a8213b" }}>{vendor.tag}</div>
           <button onClick={onToggleSave} aria-label={saved ? "Remove from saved" : "Save vendor"}
-            className="absolute top-4 right-4 w-9 h-9 rounded-full flex items-center justify-center text-lg"
+            className="absolute top-4 right-4 w-11 h-11 sm:w-9 sm:h-9 rounded-full flex items-center justify-center text-lg"
             style={saved ? { background: "#a8213b", color: "#fff" } : { background: "rgba(255,255,255,0.9)", color: "#333" }}>
             {saved ? "♥" : "♡"}
           </button>
         </div>
 
-        <div className="p-8 space-y-7">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h1 className="text-3xl font-medium text-gray-800">{vendor.name}</h1>
+        <div className="p-5 sm:p-8 space-y-6 sm:space-y-7">
+          <div className="flex items-start justify-between gap-3 sm:gap-4 flex-wrap">
+            <div className="min-w-0">
+              <h1 className="text-2xl sm:text-3xl font-medium text-gray-800">{vendor.name}</h1>
               <div className="text-sm text-gray-600 mt-1">{meta.icon} {meta.label} · {vendor.area}, {vendor.city}</div>
               <div className="flex items-center gap-2 mt-2 text-lg"><Stars rating={vendor.rating} /><span className="text-sm font-semibold text-gray-800">{vendor.rating.toFixed(1)}</span></div>
             </div>
-            <div className="text-right shrink-0">
+            <div className="sm:text-right shrink-0">
               <div className="text-xs uppercase tracking-wider text-gray-600">Partner score</div>
-              <div className="text-4xl font-semibold" style={{ color: "#a8213b" }}>{vendor.partnerScore}<span className="text-lg text-gray-600">/100</span></div>
+              <div className="text-3xl sm:text-4xl font-semibold" style={{ color: "#a8213b" }}>{vendor.partnerScore}<span className="text-lg text-gray-600">/100</span></div>
               <div className="text-sm font-semibold" style={{ color: "#c08a0c" }}>{vendor.priceBand}</div>
             </div>
           </div>
 
           <p className="text-sm text-gray-700 leading-relaxed">{vendor.description}</p>
 
-          <div className="grid grid-cols-2 gap-6">
-            <div className="rounded-2xl p-5 space-y-4" style={{ background: "#fdf8f0", border: "1px solid #fbe8ec" }}>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5 sm:gap-6">
+            <div className="rounded-2xl p-4 sm:p-5 space-y-4" style={{ background: "#fdf8f0", border: "1px solid #fbe8ec" }}>
               <h3 className="text-sm font-semibold uppercase tracking-wider" style={{ color: "#a8213b" }}>Scorecard</h3>
               <ScoreBar label="Customer rating" value={(vendor.rating / 5) * 100} shown={`${vendor.rating.toFixed(1)} / 5`} />
               <ScoreBar label="Reliability" value={vendor.reliability} shown={`${vendor.reliability}%`} />
@@ -1063,11 +1063,11 @@ function VendorDetail({ vendor, plan, saved, booked, onToggleSave, onToggleBook,
             </div>
 
             <div className="space-y-6">
-              <div className="rounded-2xl p-5 space-y-3" style={{ background: "#fdf8f0", border: "1px solid #fbe8ec" }}>
+              <div className="rounded-2xl p-4 sm:p-5 space-y-3" style={{ background: "#fdf8f0", border: "1px solid #fbe8ec" }}>
                 <h3 className="text-sm font-semibold uppercase tracking-wider" style={{ color: "#a8213b" }}>Contact & location</h3>
                 {rows.map(([label, value]) => (
-                  <div key={label} className="flex gap-3">
-                    <span className="text-sm text-gray-600 w-28 shrink-0">{label}</span>
+                  <div key={label} className="flex flex-col min-[420px]:flex-row gap-0.5 min-[420px]:gap-3">
+                    <span className="text-sm text-gray-600 min-[420px]:w-28 shrink-0">{label}</span>
                     <span className="text-sm text-gray-800 font-medium" style={{ overflowWrap: "anywhere" }}>{value}</span>
                   </div>
                 ))}
@@ -1083,13 +1083,13 @@ function VendorDetail({ vendor, plan, saved, booked, onToggleSave, onToggleBook,
             </div>
           </div>
 
-          <div className="flex items-center gap-4 flex-wrap">
+          <div className="flex items-center gap-3 sm:gap-4 flex-wrap [&>button]:w-full sm:[&>button]:w-auto">
             <button onClick={() => onMessage(vendor)}
-              className="text-white rounded-xl px-8 py-3 font-medium text-sm sparkle-btn"
+              className="text-white rounded-xl px-8 py-3.5 sm:py-3 font-medium text-sm sparkle-btn"
               style={{ background: "linear-gradient(135deg, #a8213b, #881a30)" }}>
               💬 Message vendor
             </button>
-            <button onClick={() => onToggleBook(vendor, vendor.estCost)} className="rounded-xl px-6 py-3 font-medium text-sm"
+            <button onClick={() => onToggleBook(vendor, vendor.estCost)} className="rounded-xl px-6 py-3.5 sm:py-3 font-medium text-sm"
               style={booked ? { background: "#f3faf0", color: "#2f6b1f", border: "1px solid #9bd08a" } : { color: "#a8213b", border: "1px solid #a8213b" }}>
               {booked ? `✓ Booked · ${inr(vendor.estCost)} (undo)` : "Mark as booked"}
             </button>
@@ -1155,8 +1155,8 @@ function VendorsTab({ plan, cities, city, setCity, bookings, onToggleBook, onMes
   const cityKnown = cities.some((c) => c.name.toLowerCase() === plan.location.trim().toLowerCase());
 
   return (
-    <div className="p-8 max-w-6xl space-y-6">
-      <div className="flex items-end justify-between gap-4 flex-wrap">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-6xl space-y-5 sm:space-y-6">
+      <div className="flex items-end justify-between gap-3 sm:gap-4 flex-wrap">
         <div>
           <h1 className="text-3xl font-medium text-gray-800">Vendor Marketplace</h1>
           <p className="text-sm text-gray-600 mt-1">Browse wedding vendors city by city, compare scorecards, and message them directly.</p>
@@ -1171,14 +1171,14 @@ function VendorsTab({ plan, cities, city, setCity, bookings, onToggleBook, onMes
       )}
 
       <div className="flex items-center gap-3 flex-wrap">
-        <div className="relative flex-1 min-w-64">
+        <div className="relative flex-1 min-w-[14rem]">
           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">⌕</span>
-          <input className="w-full pl-8 pr-4 py-2.5 bg-white rounded-xl text-sm focus:outline-none" style={{ border: "1px solid #fbe8ec" }}
+          <input className="w-full pl-8 pr-4 py-3 sm:py-2.5 bg-white rounded-xl text-sm focus:outline-none" style={{ border: "1px solid #fbe8ec" }}
             placeholder={`Search vendors or areas in ${city || "your city"}…`} value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
         <label className="inline-flex items-center gap-2 text-sm text-gray-700">
           Sort by
-          <select value={sort} onChange={(e) => setSort(e.target.value as VendorSort)} className="rounded-xl px-3 py-2 bg-white text-sm focus:outline-none" style={{ border: "1px solid #fbe8ec" }}>
+          <select value={sort} onChange={(e) => setSort(e.target.value as VendorSort)} className="rounded-xl px-3 py-2.5 bg-white text-sm focus:outline-none" style={{ border: "1px solid #fbe8ec" }}>
             <option value="score">Partner score</option>
             <option value="rating">Rating</option>
             <option value="price">Price: low to high</option>
@@ -1187,11 +1187,12 @@ function VendorsTab({ plan, cities, city, setCity, bookings, onToggleBook, onMes
         </label>
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        <button onClick={() => setActiveCategory("all")} className="px-4 py-1.5 rounded-full text-sm font-medium transition-all"
+      {/* One swipeable row on phones instead of a tall stack of wrapped chips */}
+      <div className="flex gap-2 overflow-x-auto sm:flex-wrap sm:overflow-visible -mx-4 px-4 sm:mx-0 sm:px-0 pb-1 [&>button]:shrink-0 [&>button]:whitespace-nowrap">
+        <button onClick={() => setActiveCategory("all")} className="px-4 py-2 sm:py-1.5 rounded-full text-sm font-medium transition-all"
           style={activeCategory === "all" ? { background: "#a8213b", color: "#fff" } : { background: "#fff", color: "#1a1a1a", border: "1px solid #fbe8ec" }}>All</button>
         {(Object.keys(CATEGORY_META) as Category[]).map((k) => (
-          <button key={k} onClick={() => setActiveCategory(k)} className="px-4 py-1.5 rounded-full text-sm font-medium transition-all"
+          <button key={k} onClick={() => setActiveCategory(k)} className="px-4 py-2 sm:py-1.5 rounded-full text-sm font-medium transition-all"
             style={activeCategory === k ? { background: "#a8213b", color: "#fff" } : { background: "#fff", color: "#1a1a1a", border: "1px solid #fbe8ec" }}>
             {CATEGORY_META[k].icon} {CATEGORY_META[k].label}
           </button>
@@ -1204,7 +1205,7 @@ function VendorsTab({ plan, cities, city, setCity, bookings, onToggleBook, onMes
       {status === "ready" && (
         <>
           <div className="text-sm text-gray-700">{filtered.length} of {vendors.length} vendors in {city}</div>
-          <div className="grid grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
             {filtered.map((v) => (
               <div key={v.id} className="bg-white rounded-2xl overflow-hidden group transition-all hover:shadow-md" style={{ border: "1px solid #fbe8ec" }}>
                 <div className="relative">
@@ -1212,7 +1213,7 @@ function VendorsTab({ plan, cities, city, setCity, bookings, onToggleBook, onMes
                     className="w-full h-36 object-cover" style={{ background: "#fdf2f4" }} />
                   <div className="absolute top-2 left-2 text-xs font-medium px-2 py-1 rounded-full" style={{ background: "rgba(255,255,255,0.92)", color: "#a8213b" }}>{v.tag}</div>
                   <button onClick={() => toggle(v.id)} aria-label={saved.has(v.id) ? "Remove from saved" : "Save vendor"}
-                    className={`absolute top-2 right-2 w-7 h-7 rounded-full flex items-center justify-center transition-all ${saved.has(v.id) ? "" : "opacity-0 group-hover:opacity-100"}`}
+                    className="absolute top-2 right-2 w-11 h-11 sm:w-9 sm:h-9 rounded-full flex items-center justify-center text-lg transition-all"
                     style={saved.has(v.id) ? { background: "#a8213b", color: "#fff" } : { background: "rgba(255,255,255,0.85)", color: "#333" }}>
                     {saved.has(v.id) ? "♥" : "♡"}
                   </button>
@@ -1234,13 +1235,13 @@ function VendorsTab({ plan, cities, city, setCity, bookings, onToggleBook, onMes
                     <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ background: "#fdf2f4", color: "#a8213b" }} title="Partner score">{v.partnerScore}/100</span>
                   </div>
                   <div className="mt-3 flex gap-2">
-                    <button onClick={() => setSelected(v)} className="flex-1 text-xs rounded-xl py-2 transition-colors" style={{ color: "#a8213b", border: "1px solid #f5c6d0" }}>View & Contact</button>
-                    <button onClick={() => onMessage(v)} aria-label={`Message ${v.name}`} className="text-xs rounded-xl px-3 py-2 text-white" style={{ background: "linear-gradient(135deg, #a8213b, #881a30)" }}>💬</button>
+                    <button onClick={() => setSelected(v)} className="flex-1 text-sm rounded-xl py-2.5 transition-colors" style={{ color: "#a8213b", border: "1px solid #f5c6d0" }}>View & Contact</button>
+                    <button onClick={() => onMessage(v)} aria-label={`Message ${v.name}`} className="text-sm rounded-xl px-4 py-2.5 text-white" style={{ background: "linear-gradient(135deg, #a8213b, #881a30)" }}>💬</button>
                   </div>
                 </div>
               </div>
             ))}
-            {filtered.length === 0 && <div className="col-span-3 text-center py-16 text-gray-700 text-sm">No vendors match. Try another category or search.</div>}
+            {filtered.length === 0 && <div className="col-span-full text-center py-16 text-gray-700 text-sm">No vendors match. Try another category or search.</div>}
           </div>
           <p className="text-xs text-gray-600">Sample data: vendors are fictional and prices are estimates for {plan.guestCount} guests over {days} day{days > 1 ? "s" : ""}.</p>
         </>
@@ -1256,6 +1257,8 @@ function MessagesTab({ plan, threads, setThreads, activeId, setActiveId, onNavig
   onNavigate: (t: Tab) => void;
 }) {
   const [draft, setDraft] = useState("");
+  // On phones only one pane shows at a time: the conversation list, or the open chat.
+  const [view, setView] = useState<"list" | "chat">(activeId ? "chat" : "list");
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const active = threads.find((t) => t.id === activeId) ?? threads[0];
@@ -1279,12 +1282,12 @@ function MessagesTab({ plan, threads, setThreads, activeId, setActiveId, onNavig
 
   if (!active) {
     return (
-      <div className="p-8 max-w-3xl space-y-6">
+      <div className="p-4 sm:p-6 lg:p-8 max-w-3xl space-y-5 sm:space-y-6">
         <div>
           <h1 className="text-3xl font-medium text-gray-800">Messages</h1>
           <p className="text-sm text-gray-600 mt-1">Your conversations with vendors live here.</p>
         </div>
-        <div className="bg-white rounded-2xl p-12 text-center" style={{ border: "1px solid #fbe8ec" }}>
+        <div className="bg-white rounded-2xl p-6 sm:p-12 text-center" style={{ border: "1px solid #fbe8ec" }}>
           <div className="text-4xl mb-3" aria-hidden="true">💬</div>
           <div className="text-xl font-medium text-gray-800">No conversations yet</div>
           <p className="text-sm text-gray-700 mt-2 max-w-md mx-auto">Message a vendor from the agent's suggestions on the Overview page, or browse the marketplace. A short enquiry is drafted for you to review before sending.</p>
@@ -1300,34 +1303,35 @@ function MessagesTab({ plan, threads, setThreads, activeId, setActiveId, onNavig
   const selectThread = (id: string) => {
     setActiveId(id);
     setThreads(threads.map((t) => t.id === id ? { ...t, unread: false } : t));
+    setView("chat");
   };
 
   const quickReplies = ["Confirmed! ✓", "Can we reschedule?", "Please send the invoice", "What's the advance amount?", "Thank you 🙏"];
 
   return (
-    <div className="flex overflow-hidden" style={{ height: "100vh" }}>
-      {/* Thread list */}
-      <div className="w-72 shrink-0 overflow-y-auto bg-white" style={{ borderRight: "1px solid #fbe8ec" }}>
-        <div className="p-5 sticky top-0 bg-white z-10" style={{ borderBottom: "1px solid #fdf2f4" }}>
-          <h2 className="text-lg font-medium text-gray-800">Messages</h2>
-          <p className="text-xs text-gray-400 mt-0.5">Vendors & stakeholders</p>
+    <div className="flex overflow-hidden h-full">
+      {/* Thread list: its own screen on phones, a side column from tablet width up */}
+      <div className={`${view === "list" ? "flex" : "hidden"} md:flex flex-col w-full md:w-72 md:shrink-0 overflow-y-auto bg-white`} style={{ borderRight: "1px solid #fbe8ec" }}>
+        <div className="p-4 sm:p-5 sticky top-0 bg-white z-10" style={{ borderBottom: "1px solid #fdf2f4" }}>
+          <h2 className="text-xl font-medium text-gray-800">Messages</h2>
+          <p className="text-sm text-gray-600 mt-0.5">Vendors & stakeholders</p>
         </div>
         {threads.map((t) => (
           <button key={t.id} onClick={() => selectThread(t.id)}
             className="w-full text-left p-4 transition-colors"
             style={{ background: active.id === t.id ? "#fdf2f4" : "transparent", borderBottom: "1px solid #fdf8f0" }}>
             <div className="flex items-start gap-3">
-              <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-medium shrink-0"
+              <div className="w-10 h-10 rounded-full flex items-center justify-center text-base font-medium shrink-0"
                 style={t.unread ? { background: "#a8213b", color: "#fff" } : { background: "#fdf2f4", color: "#a8213b" }}>
                 {t.avatar}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between">
-                  <span className={`text-xs font-semibold truncate ${t.unread ? "text-gray-800" : "text-gray-600"}`}>{t.sender}</span>
-                  <span className="text-xs text-gray-400 shrink-0 ml-1">{t.lastTime}</span>
+                  <span className={`text-sm font-semibold truncate ${t.unread ? "text-gray-800" : "text-gray-700"}`}>{t.sender}</span>
+                  <span className="text-xs text-gray-600 shrink-0 ml-1">{t.lastTime}</span>
                 </div>
-                <div className="text-xs text-gray-400 truncate mt-0.5">{t.role.split("·")[0].trim()}</div>
-                <div className={`text-xs truncate mt-0.5 ${t.unread ? "text-gray-700 font-medium" : "text-gray-400"}`}>
+                <div className="text-xs text-gray-600 truncate mt-0.5">{t.role.split("·")[0].trim()}</div>
+                <div className={`text-sm truncate mt-0.5 ${t.unread ? "text-gray-800 font-medium" : "text-gray-700"}`}>
                   {t.messages[t.messages.length - 1]?.text ?? (t.draft ? "Draft enquiry ready to review" : "No messages yet")}
                 </div>
               </div>
@@ -1337,17 +1341,18 @@ function MessagesTab({ plan, threads, setThreads, activeId, setActiveId, onNavig
       </div>
 
       {/* Chat pane */}
-      <div className="flex-1 flex flex-col overflow-hidden" style={{ background: "#fdf8f0" }}>
+      <div className={`${view === "chat" ? "flex" : "hidden"} md:flex flex-1 min-w-0 flex-col overflow-hidden`} style={{ background: "#fdf8f0" }}>
         {/* Header */}
-        <div className="px-6 py-4 bg-white flex items-center gap-4 shrink-0" style={{ borderBottom: "1px solid #fbe8ec" }}>
-          <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-medium" style={{ background: "#fdf2f4", color: "#a8213b" }}>
+        <div className="px-3 sm:px-6 py-3 sm:py-4 bg-white flex items-center gap-3 sm:gap-4 shrink-0" style={{ borderBottom: "1px solid #fbe8ec" }}>
+          <button onClick={() => setView("list")} aria-label="Back to conversations" className="md:hidden text-2xl leading-none px-2 py-1" style={{ color: "#a8213b" }}>‹</button>
+          <div className="w-10 h-10 rounded-full flex items-center justify-center text-base font-medium shrink-0" style={{ background: "#fdf2f4", color: "#a8213b" }}>
             {active.avatar}
           </div>
-          <div>
-            <div className="font-medium text-gray-800 text-sm">{active.sender}</div>
-            <div className="text-xs text-gray-400">{active.role}</div>
+          <div className="min-w-0">
+            <div className="font-medium text-gray-800 text-base truncate">{active.sender}</div>
+            <div className="text-xs text-gray-600 truncate">{active.role}</div>
           </div>
-          <div className="ml-auto flex gap-2">
+          <div className="ml-auto hidden xl:flex gap-2">
             {["📅 Schedule Call", "📄 View Contract", "📎 Share File"].map((l) => (
               <span key={l} className="text-xs px-3 py-1.5 rounded-full cursor-pointer transition-colors select-none"
                 style={{ background: "#fdf2f4", color: "#a8213b" }}>{l}</span>
@@ -1356,10 +1361,10 @@ function MessagesTab({ plan, threads, setThreads, activeId, setActiveId, onNavig
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+        <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 sm:py-5 space-y-4 min-h-0">
           {/* Date stamp */}
           <div className="text-center">
-            <span className="text-xs text-gray-400 bg-white px-3 py-1 rounded-full" style={{ border: "1px solid #fbe8ec" }}>Today</span>
+            <span className="text-xs text-gray-600 bg-white px-3 py-1 rounded-full" style={{ border: "1px solid #fbe8ec" }}>Today</span>
           </div>
 
           {active.messages.map((msg) => (
@@ -1368,15 +1373,15 @@ function MessagesTab({ plan, threads, setThreads, activeId, setActiveId, onNavig
                 <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium mr-2 mt-1 shrink-0"
                   style={{ background: "#fdf2f4", color: "#a8213b" }}>{active.avatar}</div>
               )}
-              <div className="max-w-xs">
-                <div className={`text-xs rounded-2xl px-4 py-3 leading-relaxed ${msg.from === "me" ? "rounded-tr-sm text-white" : "rounded-tl-sm text-gray-700 bg-white"}`}
+              <div className="max-w-[85%] sm:max-w-md">
+                <div className={`text-sm rounded-2xl px-4 py-3 leading-relaxed ${msg.from === "me" ? "rounded-tr-sm text-white" : "rounded-tl-sm text-gray-800 bg-white"}`}
                   style={msg.from === "me" ? { background: "linear-gradient(135deg, #a8213b, #881a30)" } : { border: "1px solid #fbe8ec" }}>
                   {msg.text}
                 </div>
-                <div className={`text-xs text-gray-400 mt-1 ${msg.from === "me" ? "text-right" : "text-left"}`}>{msg.time}</div>
+                <div className={`text-xs text-gray-600 mt-1 ${msg.from === "me" ? "text-right" : "text-left"}`}>{msg.time}</div>
               </div>
               {msg.from === "me" && (
-                <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium ml-2 mt-1 shrink-0"
+                <div className="w-7 h-7 rounded-full items-center justify-center text-xs font-medium ml-2 mt-1 shrink-0 hidden sm:flex"
                   style={{ background: "#fbf0a1", color: "#9a6a0a" }}>{plan.name[0]}</div>
               )}
             </div>
@@ -1384,22 +1389,22 @@ function MessagesTab({ plan, threads, setThreads, activeId, setActiveId, onNavig
           <div ref={bottomRef} />
         </div>
 
-        {/* Quick replies */}
-        <div className="px-6 pt-2 flex flex-wrap gap-2 bg-white" style={{ borderTop: "1px solid #fbe8ec" }}>
+        {/* Quick replies: one swipeable row on phones */}
+        <div className="px-3 sm:px-6 pt-2 flex gap-2 overflow-x-auto sm:flex-wrap bg-white [&>button]:shrink-0 [&>button]:whitespace-nowrap" style={{ borderTop: "1px solid #fbe8ec" }}>
           {quickReplies.map((q) => (
-            <button key={q} onClick={() => setDraft(q)} className="text-xs px-3 py-1.5 rounded-full transition-colors"
+            <button key={q} onClick={() => setDraft(q)} className="text-sm px-3 py-2 sm:py-1.5 rounded-full transition-colors"
               style={{ color: "#a8213b", background: "#fdf2f4", border: "1px solid #f5c6d0" }}>{q}</button>
           ))}
         </div>
 
         {/* Compose */}
-        <div className="px-6 py-4 bg-white flex items-end gap-3">
+        <div className="px-3 sm:px-6 py-3 sm:py-4 bg-white flex items-end gap-2 sm:gap-3 shrink-0">
           <textarea rows={2} value={draft} onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
             placeholder={`Message ${active.sender.split(" ")[0]}…`}
-            className="flex-1 rounded-xl px-4 py-3 text-sm resize-none focus:outline-none"
+            className="flex-1 min-w-0 rounded-xl px-4 py-3 text-base resize-none focus:outline-none max-h-40"
             style={{ border: "1px solid #fbe8ec", background: "#fdf8f0" }} />
-          <button onClick={send} className="text-white w-10 h-10 rounded-xl flex items-center justify-center shrink-0 text-base"
+          <button onClick={send} aria-label="Send" className="text-white w-12 h-12 rounded-xl flex items-center justify-center shrink-0 text-lg"
             style={{ background: "linear-gradient(135deg, #a8213b, #881a30)" }}>↑</button>
         </div>
       </div>
@@ -1491,7 +1496,7 @@ function AgentPanel({ plan, agent, setAgent, setAllocation, completed, onMessage
 
   return (
     <div className="space-y-6">
-      <div className="bg-white rounded-2xl p-6 space-y-4" style={{ border: "2px solid #f5c6d0" }}>
+      <div className="bg-white rounded-2xl p-4 sm:p-6 space-y-4" style={{ border: "2px solid #f5c6d0" }}>
         <div>
           <h2 className="text-2xl font-medium text-gray-800">Wedding Agent ✦</h2>
           <p className="text-sm text-gray-600 mt-1">Tell the agent your goal. It plans the budget, searches vendors, checks availability and scores them for you.</p>
@@ -1505,7 +1510,7 @@ function AgentPanel({ plan, agent, setAgent, setAllocation, completed, onMessage
         </div>
         <div className="flex items-center gap-4 flex-wrap">
           <button onClick={run} disabled={phase === "running" || !agent.objective.trim() || openLabels.length === 0}
-            className="text-white rounded-xl px-8 py-3 font-medium text-sm disabled:opacity-50 sparkle-btn" style={PRIMARY_BTN}>
+            className="text-white rounded-xl px-8 py-3.5 sm:py-3 font-medium text-sm disabled:opacity-50 sparkle-btn w-full sm:w-auto" style={PRIMARY_BTN}>
             {phase === "running" ? "Agent is working…" : result ? "✦ Run again" : "✦ Run the Wedding Agent"}
           </button>
           <span className="text-xs text-gray-600">Prototype: vendor data is a sample database, and availability is simulated.</span>
@@ -1514,7 +1519,7 @@ function AgentPanel({ plan, agent, setAgent, setAllocation, completed, onMessage
       </div>
 
       {(phase === "running" || result) && (
-        <div className="bg-white rounded-2xl p-6" style={{ border: "1px solid #fbe8ec" }}>
+        <div className="bg-white rounded-2xl p-4 sm:p-6" style={{ border: "1px solid #fbe8ec" }}>
           <h3 className="font-medium text-gray-700 text-sm mb-4">Agent activity</h3>
           <div className="space-y-4">
             {phase === "running" && <div className="text-sm text-gray-600">Planning, searching and scoring…</div>}
@@ -1537,26 +1542,26 @@ function AgentPanel({ plan, agent, setAgent, setAllocation, completed, onMessage
 
       {result && finished && (
         <>
-          <div className="rounded-2xl p-6" style={{ background: "linear-gradient(135deg, #fdf2f4, #fefdf0)", border: "2px solid #c08a0c" }}>
+          <div className="rounded-2xl p-4 sm:p-6" style={{ background: "linear-gradient(135deg, #fdf2f4, #fefdf0)", border: "2px solid #c08a0c" }}>
             <div className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "#a8213b" }}>Agent summary</div>
             <p className="text-sm text-gray-800 leading-relaxed">{result.summary}</p>
             {!result.usedLlm && <p className="text-xs text-gray-600 mt-2">AI language model unavailable, so this uses default priorities and a templated summary.</p>}
           </div>
 
-          <div className="bg-white rounded-2xl p-6 space-y-4" style={{ border: "1px solid #fbe8ec" }}>
-            <div className="flex items-start justify-between gap-4">
+          <div className="bg-white rounded-2xl p-4 sm:p-6 space-y-4" style={{ border: "1px solid #fbe8ec" }}>
+            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4">
               <div>
                 <h3 className="font-medium text-gray-800 text-lg">Proposed budget</h3>
                 <p className="text-sm text-gray-600">{inr(result.envelope.allocatable)} to allocate, plus {inr(result.envelope.reserve)} kept as a reserve.</p>
               </div>
-              <button onClick={apply} disabled={agent.applied} className="rounded-xl px-5 py-2.5 text-sm font-medium shrink-0"
+              <button onClick={apply} disabled={agent.applied} className="rounded-xl px-5 py-3 sm:py-2.5 text-sm font-medium sm:shrink-0 w-full sm:w-auto"
                 style={agent.applied ? { background: "#f3faf0", color: "#2f6b1f", border: "1px solid #9bd08a" } : { ...PRIMARY_BTN, color: "#fff" }}>
                 {agent.applied ? "✓ Applied to your Budget" : "Apply to my Budget"}
               </button>
             </div>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 sm:gap-3">
               {cats.map((k) => (
-                <div key={k} className="rounded-xl p-3" style={{ background: "#fdf8f0", border: "1px solid #fbe8ec" }}>
+                <div key={k} className="rounded-xl p-3 min-w-0" style={{ background: "#fdf8f0", border: "1px solid #fbe8ec" }}>
                   <div className="text-sm text-gray-700">{CATEGORY_META[k].icon} {CATEGORY_META[k].label}</div>
                   <div className="text-lg font-semibold" style={{ color: "#a8213b" }}>{inr(result.allocation[k])}</div>
                   <div className="text-xs text-gray-600">{Math.round((result.allocation[k] / result.envelope.total) * 100)}% of total</div>
@@ -1571,8 +1576,8 @@ function AgentPanel({ plan, agent, setAgent, setAllocation, completed, onMessage
             {cats.filter((k) => result.shortlists[k]).map((k) => {
               const picks = result.shortlists[k] ?? [];
               return (
-                <div key={k} className="bg-white rounded-2xl p-5" style={{ border: "1px solid #fbe8ec" }}>
-                  <div className="flex items-center justify-between mb-3">
+                <div key={k} className="bg-white rounded-2xl p-3 sm:p-5" style={{ border: "1px solid #fbe8ec" }}>
+                  <div className="flex items-center justify-between gap-2 flex-wrap mb-3 px-1 sm:px-0">
                     <div className="text-sm font-semibold text-gray-800">{CATEGORY_META[k].icon} {CATEGORY_META[k].label}</div>
                     <div className="text-xs text-gray-600">Allocation {inr(result.allocation[k])}</div>
                   </div>
@@ -1581,9 +1586,9 @@ function AgentPanel({ plan, agent, setAgent, setAllocation, completed, onMessage
                     {picks.map((p, i) => {
                       const f = FIT_STYLE[p.fit];
                       return (
-                        <div key={p.id} className="flex items-start gap-3 rounded-xl p-3" style={{ background: i === 0 ? "#fffafb" : "transparent", border: i === 0 ? "1px solid #f5c6d0" : "1px solid transparent" }}>
+                        <div key={p.id} className="flex flex-wrap sm:flex-nowrap items-start gap-3 rounded-xl p-3" style={{ background: i === 0 ? "#fffafb" : "transparent", border: i === 0 ? "1px solid #f5c6d0" : "1px solid transparent" }}>
                           <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold shrink-0" style={{ background: "#fdf2f4", color: "#a8213b" }}>{p.score}</div>
-                          <div className="flex-1 min-w-0">
+                          <div className="flex-1 min-w-[10rem]">
                             <div className="flex flex-wrap items-center gap-2">
                               <span className="text-sm font-semibold text-gray-800">{p.name}</span>
                               {i === 0 && <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: "#a8213b", color: "#fff" }}>Top pick</span>}
@@ -1593,7 +1598,7 @@ function AgentPanel({ plan, agent, setAgent, setAllocation, completed, onMessage
                             <div className="text-xs text-gray-600">{p.reasons.slice(0, 2).join(" · ")}</div>
                           </div>
                           <button onClick={() => onMessage({ id: p.id, name: p.name, category: p.category, area: p.area, city: plan.location })}
-                            className="shrink-0 text-sm font-medium rounded-xl px-4 py-2 text-white" style={PRIMARY_BTN}
+                            className="w-full sm:w-auto sm:shrink-0 text-sm font-medium rounded-xl px-4 py-3 sm:py-2 text-white" style={PRIMARY_BTN}
                             title="Opens a chat with a drafted enquiry">💬 Message</button>
                         </div>
                       );
@@ -1609,16 +1614,89 @@ function AgentPanel({ plan, agent, setAgent, setAllocation, completed, onMessage
   );
 }
 
+// ─── Phone / tablet navigation (the sidebar is desktop only) ────────────────────
+
+const MOBILE_TABS: { id: Tab; label: string; icon: string }[] = [
+  { id: "dashboard", label: "Overview", icon: "◈" },
+  { id: "budget",    label: "Budget",   icon: "◎" },
+  { id: "vendors",   label: "Vendors",  icon: "◉" },
+  { id: "messages",  label: "Messages", icon: "◐" },
+];
+
+function MobileTopBar({ plan }: { plan: WeddingPlan }) {
+  const daysLeft = Math.max(0, Math.ceil((new Date(plan.date).getTime() - Date.now()) / 86400000));
+  return (
+    <header className="lg:hidden [@media(max-height:500px)]:hidden shrink-0 flex items-center justify-between px-4 bg-white" style={{ borderBottom: "1px solid #fbe8ec", minHeight: 52, paddingTop: "env(safe-area-inset-top)" }}>
+      <div className="flex items-center gap-2">
+        <div className="w-7 h-7 rounded-full flex items-center justify-center" style={{ background: "#a8213b" }}><span className="text-white text-xs font-bold">P</span></div>
+        <span className="text-lg font-medium" style={{ color: "#a8213b" }}>Partnered</span>
+      </div>
+      <div className="text-sm text-gray-800"><span className="font-semibold" style={{ color: "#a8213b" }}>{daysLeft}</span> days to go</div>
+    </header>
+  );
+}
+
+function MobileTabBar({ tab, setTab, plan, unreadCount }: { tab: Tab; setTab: (t: Tab) => void; plan: WeddingPlan; unreadCount: number }) {
+  const [more, setMore] = useState(false);
+  const moreActive = tab === "stories" || tab === "blogs";
+  const item = (active: boolean) => ({ color: active ? "#a8213b" : "#1a1a1a", borderTop: `3px solid ${active ? "#a8213b" : "transparent"}` });
+  return (
+    <>
+      <nav className="lg:hidden shrink-0 bg-white flex" style={{ borderTop: "1px solid #fbe8ec", paddingBottom: "env(safe-area-inset-bottom)" }} aria-label="Main">
+        {MOBILE_TABS.map((n) => (
+          <button key={n.id} onClick={() => setTab(n.id)} aria-current={tab === n.id ? "page" : undefined}
+            className="flex-1 flex flex-col items-center justify-center gap-0.5 py-2 relative min-h-14 [@media(max-height:500px)]:min-h-11 [@media(max-height:500px)]:py-1" style={item(tab === n.id)}>
+            <span className="text-xl leading-none">{n.icon}</span>
+            <span className="text-xs font-medium">{n.label}</span>
+            {n.id === "messages" && unreadCount > 0 && (
+              <span className="absolute top-1.5 right-[22%] text-xs rounded-full w-5 h-5 flex items-center justify-center font-semibold text-white" style={{ background: "#a8213b" }}>{unreadCount}</span>
+            )}
+          </button>
+        ))}
+        <button onClick={() => setMore(true)} className="flex-1 flex flex-col items-center justify-center gap-0.5 py-2 min-h-14 [@media(max-height:500px)]:min-h-11 [@media(max-height:500px)]:py-1" style={item(moreActive)}>
+          <span className="text-xl leading-none">☰</span>
+          <span className="text-xs font-medium">More</span>
+        </button>
+      </nav>
+
+      {more && (
+        <div className="lg:hidden fixed inset-0 z-50 flex items-end" style={{ background: "rgba(0,0,0,0.45)" }} onClick={() => setMore(false)}>
+          <div className="w-full rounded-t-3xl bg-white p-5 space-y-4" style={{ borderTop: "3px solid #c08a0c", paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom))" }} onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-xl font-medium text-gray-800">More</h3>
+              <button onClick={() => setMore(false)} aria-label="Close" className="text-xl px-3 py-2 -mr-3" style={{ color: "#444" }}>✕</button>
+            </div>
+            <div className="rounded-2xl p-4" style={{ background: "linear-gradient(135deg, #fdf2f4, #fefdf0)", border: "1px solid #f5c6d0" }}>
+              <div className="text-base font-medium text-gray-800">{plan.name} & {plan.partnerName}</div>
+              <div className="text-sm text-gray-700">{plan.location} · {new Date(plan.date).toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })}</div>
+              <div className="text-sm text-gray-700">{plan.guestCount} guests · {inr(plan.budget)}</div>
+            </div>
+            <div className="text-xs font-semibold uppercase tracking-wider" style={{ color: "#a8213b" }}>Inspiration</div>
+            <div className="space-y-1">
+              {INSPIRATION_NAV.map((n) => (
+                <button key={n.id} onClick={() => { setTab(n.id); setMore(false); }}
+                  className="w-full flex items-center gap-3 px-3 rounded-xl text-base font-medium text-left" style={{ minHeight: 48, color: tab === n.id ? "#fff" : "#1a1a1a", background: tab === n.id ? "linear-gradient(135deg, #a8213b, #881a30)" : "#fdf8f0" }}>
+                  <span className="text-lg">{n.icon}</span>{n.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 // ─── Placeholder pages (content to be added) ─────────────────────────────────
 
 function ComingSoonTab({ icon, title, blurb }: { icon: string; title: string; blurb: string }) {
   return (
-    <div className="p-8 max-w-4xl space-y-6">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-4xl space-y-5 sm:space-y-6">
       <div>
         <h1 className="text-3xl font-medium text-gray-800">{title}</h1>
         <p className="text-sm text-gray-600 mt-1">{blurb}</p>
       </div>
-      <div className="bg-white rounded-2xl p-12 text-center" style={{ border: "1px solid #fbe8ec" }}>
+      <div className="bg-white rounded-2xl p-6 sm:p-12 text-center" style={{ border: "1px solid #fbe8ec" }}>
         <div className="text-4xl mb-3" aria-hidden="true">{icon}</div>
         <div className="text-xl font-medium text-gray-800">Coming soon</div>
         <p className="text-sm text-gray-600 mt-1">We're preparing this section.</p>
@@ -1699,12 +1777,14 @@ export default function App() {
   const shownCity = cityNames.includes(marketCity) ? marketCity : planCity;
 
   return (
-    <div className="flex h-screen overflow-hidden relative" style={{ background: "#fdf8f0" }}>
+    <div className="flex h-dvh overflow-hidden relative" style={{ background: "#fdf8f0" }}>
       <Backdrop />
-      <div className="relative flex" style={{ zIndex: 10 }}>
+      <div className="relative hidden lg:flex" style={{ zIndex: 10 }}>
         <Sidebar tab={tab} setTab={setTab} plan={plan} unreadCount={unreadCount} />
       </div>
-      <main className="flex-1 overflow-y-auto relative" style={{ zIndex: 10 }}>
+      <div className="flex-1 min-w-0 flex flex-col relative" style={{ zIndex: 10 }}>
+      <MobileTopBar plan={plan} />
+      <main className="flex-1 overflow-y-auto relative min-h-0">
         {tab === "dashboard" && <DashboardTab plan={plan} allocation={allocation} bookings={bookings} checklistDone={checklistDone} onToggleCheck={toggleCheck}
           agent={agent} setAgent={setAgent} setAllocation={setAllocation} setTab={setTab} onEditPlan={setPlan} onMessage={messageVendor} />}
         {tab === "stories"   && <ComingSoonTab icon="❀" title="Success Stories" blurb="Real weddings planned on Partnered." />}
@@ -1713,6 +1793,8 @@ export default function App() {
         {tab === "vendors"   && <VendorsTab plan={plan} cities={cities} city={shownCity} setCity={setMarketCity} bookings={bookings} onToggleBook={toggleBook} onMessage={messageVendor} />}
         {tab === "messages"  && <MessagesTab plan={plan} threads={threads} setThreads={setThreads} activeId={activeThreadId} setActiveId={setActiveThreadId} onNavigate={setTab} />}
       </main>
+      <MobileTabBar tab={tab} setTab={setTab} plan={plan} unreadCount={unreadCount} />
+      </div>
     </div>
   );
 }

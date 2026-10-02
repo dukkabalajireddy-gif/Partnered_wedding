@@ -117,32 +117,56 @@ input::placeholder, textarea::placeholder {
   50%      { opacity: 1;    transform: scale(1.15); }
 }
 
-/* Budget sliders: coloured fill up to the thumb, light track after it */
+/* Budget sliders: coloured fill up to the handle, light track after it.
+   The input itself is tall (an easy touch target); only the 8px track is drawn. */
 .budget-slider {
   -webkit-appearance: none;
   appearance: none;
+  height: 32px;
+  background: transparent;
+  outline: none;
+  cursor: pointer;
+}
+.budget-slider::-webkit-slider-runnable-track {
   height: 8px;
   border-radius: 999px;
   background: linear-gradient(to right, var(--c) var(--p), #eadadd var(--p));
-  outline: none;
 }
 .budget-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 20px; height: 20px;
+  width: 22px; height: 22px;
+  margin-top: -7px;
   border-radius: 50%;
   background: #fff;
   border: 3px solid var(--c);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+}
+.budget-slider::-moz-range-track {
+  height: 8px;
+  border-radius: 999px;
+  background: linear-gradient(to right, var(--c) var(--p), #eadadd var(--p));
 }
 .budget-slider::-moz-range-thumb {
-  width: 14px; height: 14px;
+  width: 16px; height: 16px;
   border-radius: 50%;
   background: #fff;
   border: 3px solid var(--c);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
 }
-.budget-slider::-moz-range-track { background: transparent; }
+
+/* Bigger handle on touch screens */
+@media (pointer: coarse) {
+  .budget-slider { height: 44px; }
+  .budget-slider::-webkit-slider-thumb { width: 30px; height: 30px; margin-top: -11px; }
+  .budget-slider::-moz-range-thumb { width: 24px; height: 24px; }
+}
+/* Phones: smaller background pattern, and no horizontal wobble */
+@media (max-width: 640px) {
+  .rangoli-bg { -webkit-mask-size: 300px auto; mask-size: 300px auto; }
+}
+html, body { overflow-x: hidden; }
+body { -webkit-tap-highlight-color: transparent; }
 
 /* ─── Background art ──────────────────────────────────────────────────────── */
 
