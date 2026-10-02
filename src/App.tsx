@@ -8,6 +8,9 @@ interface Vendor {
   distance: string; rating: number; price: string; tag: string; image: string;
 }
 
+// A vendor the couple has booked. Spend and the checklist are computed from these.
+interface Booking { vendorId: string; vendorName: string; category: Category; amount: number; }
+
 interface ChatMessage {
   id: string; from: "me" | "vendor"; text: string; time: string;
 }
@@ -271,7 +274,7 @@ function OnboardingScreen({ onComplete }: { onComplete: (p: WeddingPlan) => void
         </div>
 
         <div className="flex items-center justify-center gap-2 mb-8">
-          {[0, 1, 2, 3].map((i) => (
+          {[0, 1, 2].map((i) => (
             <div key={i} className="h-1 rounded-full transition-all duration-300"
               style={{ width: i <= step ? 48 : 24, background: i <= step ? "#a8213b" : "#f5c6d0" }} />
           ))}
@@ -281,13 +284,13 @@ function OnboardingScreen({ onComplete }: { onComplete: (p: WeddingPlan) => void
           {step === 0 && (
             <div className="space-y-5">
               <div>
-                <h2 className="text-2xl font-medium text-gray-800 mb-1">Welcome! What are your names?</h2>
+                <h2 className="text-2xl font-medium text-gray-800 mb-1">Welcome! Who's getting married?</h2>
                 <p className="text-sm text-gray-400">No account needed — we'll remember you here.</p>
               </div>
               <div className="space-y-3">
                 {(["name", "partnerName"] as const).map((k, i) => (
                   <div key={k}>
-                    <label className="text-xs font-medium uppercase tracking-wider" style={{ color: "#a8213b" }}>{i === 0 ? "Your name" : "Partner's name"}</label>
+                    <label className="text-xs font-medium uppercase tracking-wider" style={{ color: "#a8213b" }}>{i === 0 ? "Bride's name" : "Groom's name"}</label>
                     <input className="mt-1 w-full rounded-xl px-4 py-3 text-sm focus:outline-none" style={{ border: "1px solid #f5c6d0", background: "#fdf2f4" }}
                       placeholder={i === 0 ? "e.g. Priya" : "e.g. Arjun"} value={(form[k] as string) ?? ""} onChange={(e) => set(k, e.target.value)} />
                   </div>
@@ -302,8 +305,8 @@ function OnboardingScreen({ onComplete }: { onComplete: (p: WeddingPlan) => void
           {step === 1 && (
             <div className="space-y-5">
               <div>
-                <h2 className="text-2xl font-medium text-gray-800 mb-1">When and where?</h2>
-                <p className="text-sm text-gray-400">We'll find shaadi vendors near your celebration city.</p>
+                <h2 className="text-2xl font-medium text-gray-800 mb-1">When, what and where?</h2>
+                <p className="text-sm text-gray-400">Your date, the events you're planning, and the city. We'll find vendors near you.</p>
               </div>
               <div className="space-y-3">
                 <div>
@@ -317,15 +320,40 @@ function OnboardingScreen({ onComplete }: { onComplete: (p: WeddingPlan) => void
                     placeholder="e.g. Delhi, Jaipur, Udaipur, Goa…" value={form.location ?? ""} onChange={(e) => set("location", e.target.value)} />
                 </div>
                 <div>
-                  <label className="text-xs font-medium uppercase tracking-wider" style={{ color: "#a8213b" }}>Expected Guests</label>
-                  <input type="number" className="mt-1 w-full rounded-xl px-4 py-3 text-sm focus:outline-none" style={{ border: "1px solid #f5c6d0", background: "#fdf2f4" }}
-                    placeholder="e.g. 300" value={form.guestCount ?? ""} onChange={(e) => set("guestCount", Number(e.target.value))} />
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-medium uppercase tracking-wider" style={{ color: "#a8213b" }}>Events planned</label>
+                    <span className="text-sm font-medium" style={{ color: "#a8213b" }}>
+                      {rituals.length} selected
+                      {rituals.length > 0 && (
+                        <button className="ml-3 underline" onClick={() => setForm((f) => ({ ...f, rituals: [] }))}>Clear</button>
+                      )}
+                    </span>
+                  </div>
+                  <div className="mt-2 space-y-4 overflow-y-auto pr-2" style={{ maxHeight: "30vh" }}>
+                    {RITUAL_GROUPS.map((g) => (
+                      <div key={g.title}>
+                        <div className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "#1a1a1a" }}>{g.title}</div>
+                        <div className="flex flex-wrap gap-2">
+                          {g.items.map((r) => {
+                            const on = rituals.includes(r);
+                            return (
+                              <button key={r} onClick={() => toggleRitual(r)} aria-pressed={on}
+                                className="text-sm px-3 py-1.5 rounded-full transition-all"
+                                style={on ? { background: "linear-gradient(135deg, #a8213b, #881a30)", color: "#fff", border: "1px solid #881a30" } : { background: "#fff", color: "#1a1a1a", border: "1px solid #f5c6d0" }}>
+                                {on ? "✓ " : ""}{r}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
               <div className="flex gap-3">
                 <button className="flex-1 rounded-xl py-3 font-medium text-sm" style={{ border: "1px solid #f5c6d0", color: "#a8213b" }} onClick={() => setStep(0)}>Back</button>
                 <button className="flex-[2] text-white rounded-xl py-3 font-medium text-sm disabled:opacity-40" style={{ background: "linear-gradient(135deg, #a8213b, #881a30)" }}
-                  disabled={!form.date || !form.location || !form.guestCount} onClick={() => setStep(2)}>Continue →</button>
+                  disabled={!form.date || !form.location || rituals.length === 0} onClick={() => setStep(2)}>Continue →</button>
               </div>
             </div>
           )}
@@ -333,47 +361,13 @@ function OnboardingScreen({ onComplete }: { onComplete: (p: WeddingPlan) => void
           {step === 2 && (
             <div className="space-y-5">
               <div>
-                <h2 className="text-2xl font-medium text-gray-800 mb-1">Which rituals will you celebrate?</h2>
-                <p className="text-sm text-gray-400">Pick every function you plan to hold. We'll split your budget across them.</p>
+                <h2 className="text-2xl font-medium text-gray-800 mb-1">Budget and guests</h2>
+                <p className="text-sm text-gray-400">Our AI will split your budget across your events and categories.</p>
               </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium" style={{ color: "#a8213b" }}>{rituals.length} selected</span>
-                {rituals.length > 0 && (
-                  <button className="text-sm underline" style={{ color: "#a8213b" }} onClick={() => setForm((f) => ({ ...f, rituals: [] }))}>Clear all</button>
-                )}
-              </div>
-              <div className="space-y-5 overflow-y-auto pr-2" style={{ maxHeight: "46vh" }}>
-                {RITUAL_GROUPS.map((g) => (
-                  <div key={g.title}>
-                    <div className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "#a8213b" }}>{g.title}</div>
-                    <div className="flex flex-wrap gap-2">
-                      {g.items.map((r) => {
-                        const on = rituals.includes(r);
-                        return (
-                          <button key={r} onClick={() => toggleRitual(r)} aria-pressed={on}
-                            className="text-sm px-3 py-1.5 rounded-full transition-all"
-                            style={on ? { background: "linear-gradient(135deg, #a8213b, #881a30)", color: "#fff", border: "1px solid #881a30" } : { background: "#fff", color: "#1a1a1a", border: "1px solid #f5c6d0" }}>
-                            {on ? "✓ " : ""}{r}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div className="flex gap-3">
-                <button className="flex-1 rounded-xl py-3 font-medium text-sm" style={{ border: "1px solid #f5c6d0", color: "#a8213b" }} onClick={() => setStep(1)}>Back</button>
-                <button className="flex-[2] text-white rounded-xl py-3 font-medium text-sm disabled:opacity-40" style={{ background: "linear-gradient(135deg, #a8213b, #881a30)" }}
-                  disabled={rituals.length === 0} onClick={() => setStep(3)}>Continue →</button>
-              </div>
-            </div>
-          )}
-
-          {step === 3 && (
-            <div className="space-y-5">
               <div>
-                <h2 className="text-2xl font-medium text-gray-800 mb-1">What's your total budget?</h2>
-                <p className="text-sm text-gray-400">Our AI will suggest ideal allocations across all shaadi categories.</p>
+                <label className="text-xs font-medium uppercase tracking-wider" style={{ color: "#a8213b" }}>Expected Guests</label>
+                <input type="number" className="mt-1 w-full rounded-xl px-4 py-3 text-sm focus:outline-none" style={{ border: "1px solid #f5c6d0", background: "#fdf2f4" }}
+                  placeholder="e.g. 300" value={form.guestCount ?? ""} onChange={(e) => set("guestCount", Number(e.target.value))} />
               </div>
               <div>
                 <label className="text-xs font-medium uppercase tracking-wider" style={{ color: "#a8213b" }}>Total Budget (INR ₹)</label>
@@ -388,9 +382,9 @@ function OnboardingScreen({ onComplete }: { onComplete: (p: WeddingPlan) => void
                 </div>
               </div>
               <div className="flex gap-3">
-                <button className="flex-1 rounded-xl py-3 font-medium text-sm" style={{ border: "1px solid #f5c6d0", color: "#a8213b" }} onClick={() => setStep(2)}>Back</button>
+                <button className="flex-1 rounded-xl py-3 font-medium text-sm" style={{ border: "1px solid #f5c6d0", color: "#a8213b" }} onClick={() => setStep(1)}>Back</button>
                 <button className="flex-[2] text-white rounded-xl py-3 font-medium text-sm disabled:opacity-40 sparkle-btn" style={{ background: "linear-gradient(135deg, #a8213b, #881a30)" }}
-                  disabled={!form.budget} onClick={() => onComplete(form as WeddingPlan)}>Shubh Aarambh ✨</button>
+                  disabled={!form.budget || !form.guestCount} onClick={() => onComplete(form as WeddingPlan)}>Shubh Aarambh ✨</button>
               </div>
             </div>
           )}
@@ -465,24 +459,34 @@ function Sidebar({ tab, setTab, plan, unreadCount }: { tab: Tab; setTab: (t: Tab
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 
-function DashboardTab({ plan, allocation, setTab }: { plan: WeddingPlan; allocation: BudgetAllocation; setTab: (t: Tab) => void }) {
-  const spentFraction: Record<Category, number> = { catering: 0.65, attire: 0.40, decoration: 0.20, photography: 0.80, hotels: 0.50, transport: 0, music: 0, gifts: 0, logistics: 0.10 };
+// What counts as "done" comes from real bookings, not hardcoded values.
+const BOOKING_CHECKS: { category: Category; text: string }[] = [
+  { category: "hotels",      text: "Venue booked" },
+  { category: "catering",    text: "Catering booked" },
+  { category: "photography", text: "Photographer booked" },
+  { category: "decoration",  text: "Decor & florals booked" },
+  { category: "attire",      text: "Bridal & groom attire booked" },
+  { category: "transport",   text: "Baraat transport arranged" },
+];
+const MANUAL_CHECKS = ["Wedding invitations (shaadi cards) sent", "Honeymoon booked"];
+
+function DashboardTab({ plan, allocation, bookings, setTab }: { plan: WeddingPlan; allocation: BudgetAllocation; bookings: Booking[]; setTab: (t: Tab) => void }) {
+  const [manualDone, setManualDone] = useState<Set<string>>(new Set());
+
   const spent = useMemo(() => {
     const r = {} as BudgetAllocation;
-    (Object.keys(allocation) as Category[]).forEach((k) => { r[k] = Math.round(allocation[k] * spentFraction[k]); });
+    (Object.keys(allocation) as Category[]).forEach((k) => { r[k] = 0; });
+    bookings.forEach((b) => { r[b.category] = (r[b.category] ?? 0) + b.amount; });
     return r;
-  }, [allocation]);
-  const totalSpent = Object.values(spent).reduce((a, b) => a + b, 0);
+  }, [allocation, bookings]);
+  const totalSpent = bookings.reduce((a, b) => a + b.amount, 0);
 
   const checklist = [
-    { done: true,  text: "Venue booked" },
-    { done: true,  text: "Catering contract signed" },
-    { done: true,  text: "Photographer confirmed" },
-    { done: false, text: "Floral & marigold arrangements finalised" },
-    { done: false, text: "Wedding invitation (shaadi card) sent" },
-    { done: false, text: "Baraat transport arranged" },
-    { done: false, text: "Honeymoon booked" },
+    ...BOOKING_CHECKS.map((c) => ({ done: bookings.some((b) => b.category === c.category), text: c.text, manual: false })),
+    ...MANUAL_CHECKS.map((t) => ({ done: manualDone.has(t), text: t, manual: true })),
   ];
+  const toggleManual = (t: string) => setManualDone((s) => { const n = new Set(s); n.has(t) ? n.delete(t) : n.add(t); return n; });
+  const doneCount = checklist.filter((c) => c.done).length;
 
   return (
     <div className="p-8 max-w-5xl space-y-8">
@@ -528,18 +532,34 @@ function DashboardTab({ plan, allocation, setTab }: { plan: WeddingPlan; allocat
         </div>
 
         <div className="col-span-2 bg-white rounded-2xl p-6" style={{ border: "1px solid #fbe8ec" }}>
-          <h3 className="font-medium text-gray-700 text-sm mb-4">Shaadi Checklist</h3>
-          <div className="space-y-2.5">
-            {checklist.map((c, i) => (
-              <div key={i} className="flex items-center gap-2.5">
-                <div className="w-4 h-4 rounded-full flex items-center justify-center shrink-0"
-                  style={c.done ? { background: "#a8213b" } : { border: "2px solid #f5c6d0" }}>
-                  {c.done && <span className="text-white text-xs">✓</span>}
-                </div>
-                <span className={`text-xs ${c.done ? "line-through text-gray-300" : "text-gray-600"}`}>{c.text}</span>
-              </div>
-            ))}
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-medium text-gray-700 text-sm">Shaadi Checklist</h3>
+            <span className="text-xs text-gray-600">{doneCount} of {checklist.length} done</span>
           </div>
+          <div className="space-y-2.5">
+            {checklist.map((c, i) => {
+              const row = (
+                <>
+                  <div className="w-4 h-4 rounded-full flex items-center justify-center shrink-0"
+                    style={c.done ? { background: "#a8213b" } : { border: "2px solid #c98a98" }}>
+                    {c.done && <span className="text-white text-xs">✓</span>}
+                  </div>
+                  <span className={`text-xs ${c.done ? "line-through text-gray-500" : "text-gray-700"}`}>{c.text}</span>
+                </>
+              );
+              return c.manual ? (
+                <button key={i} onClick={() => toggleManual(c.text)} className="flex items-center gap-2.5 text-left w-full">{row}</button>
+              ) : (
+                <div key={i} className="flex items-center gap-2.5">{row}</div>
+              );
+            })}
+          </div>
+          {bookings.length === 0 && (
+            <div className="mt-5 rounded-xl p-3 text-xs text-gray-700" style={{ background: "#fdf8f0", border: "1px solid #fbe8ec" }}>
+              Nothing is booked yet. Items tick off automatically as you book vendors.
+              <button onClick={() => setTab("vendors")} className="ml-1 underline font-medium" style={{ color: "#a8213b" }}>Find vendors →</button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -832,11 +852,13 @@ function BudgetTab({ plan, allocation, setAllocation }: {
 
 // ─── Vendors Tab ──────────────────────────────────────────────────────────────
 
-function VendorDetail({ vendor, plan, saved, onToggleSave, onBack, onMessage }: {
-  vendor: Vendor; plan: WeddingPlan; saved: boolean; onToggleSave: () => void; onBack: () => void; onMessage: (v: Vendor) => void;
+function VendorDetail({ vendor, plan, saved, booked, onToggleSave, onToggleBook, onBack, onMessage }: {
+  vendor: Vendor; plan: WeddingPlan; saved: boolean; booked: boolean; onToggleSave: () => void;
+  onToggleBook: (v: Vendor, amount: number) => void; onBack: () => void; onMessage: (v: Vendor) => void;
 }) {
   const contact = vendorContact(vendor);
   const cost = ballpark3Day(vendor, plan.guestCount);
+  const midpoint = Math.round((cost.low + cost.high) / 2);
   const meta = CATEGORY_META[vendor.category];
   const rows: [string, string][] = [
     ["📍 Location", `${vendor.location} · ${vendor.distance} from you`],
@@ -903,7 +925,13 @@ function VendorDetail({ vendor, plan, saved, onToggleSave, onBack, onMessage }: 
               style={{ background: "linear-gradient(135deg, #a8213b, #881a30)" }}>
               💬 Message vendor
             </button>
-            <span className="text-xs text-gray-600">Demo contact details: replace with real vendor data when connected.</span>
+            <button onClick={() => onToggleBook(vendor, midpoint)} className="rounded-xl px-6 py-3 font-medium text-sm"
+              style={booked ? { background: "#f3faf0", color: "#2f6b1f", border: "1px solid #9bd08a" } : { color: "#a8213b", border: "1px solid #a8213b" }}>
+              {booked ? `✓ Booked · ${inr(midpoint)} (undo)` : "Mark as booked"}
+            </button>
+          </div>
+          <div className="text-xs text-gray-600">
+            Demo only: contact details are placeholders, and "Mark as booked" records the estimate. Real payment and confirmation will go through Pine Labs.
           </div>
         </div>
       </div>
@@ -911,7 +939,9 @@ function VendorDetail({ vendor, plan, saved, onToggleSave, onBack, onMessage }: 
   );
 }
 
-function VendorsTab({ plan, onMessage }: { plan: WeddingPlan; onMessage: (v: Vendor) => void }) {
+function VendorsTab({ plan, bookings, onToggleBook, onMessage }: {
+  plan: WeddingPlan; bookings: Booking[]; onToggleBook: (v: Vendor, amount: number) => void; onMessage: (v: Vendor) => void;
+}) {
   const [activeCategory, setActiveCategory] = useState<Category | "all">("all");
   const [search, setSearch] = useState("");
   const [saved, setSaved] = useState<Set<string>>(new Set(["v14", "v5"]));
@@ -926,8 +956,8 @@ function VendorsTab({ plan, onMessage }: { plan: WeddingPlan; onMessage: (v: Ven
   const toggle = (id: string) => setSaved((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
   if (selected) {
-    return <VendorDetail vendor={selected} plan={plan} saved={saved.has(selected.id)}
-      onToggleSave={() => toggle(selected.id)} onBack={() => setSelected(null)} onMessage={onMessage} />;
+    return <VendorDetail vendor={selected} plan={plan} saved={saved.has(selected.id)} booked={bookings.some((b) => b.vendorId === selected.id)}
+      onToggleSave={() => toggle(selected.id)} onToggleBook={onToggleBook} onBack={() => setSelected(null)} onMessage={onMessage} />;
   }
 
   return (
@@ -1137,6 +1167,12 @@ export default function App() {
   const [allocation, setAllocation] = useState<BudgetAllocation>({} as BudgetAllocation);
   const [threads, setThreads] = useState<Thread[]>(INITIAL_THREADS);
   const [activeThreadId, setActiveThreadId] = useState("t1");
+  const [bookings, setBookings] = useState<Booking[]>([]);
+
+  const toggleBook = (v: Vendor, amount: number) =>
+    setBookings((bs) => bs.some((b) => b.vendorId === v.id)
+      ? bs.filter((b) => b.vendorId !== v.id)
+      : [...bs, { vendorId: v.id, vendorName: v.name, category: v.category, amount }]);
 
   const unreadCount = threads.filter((t) => t.unread).length;
 
@@ -1170,9 +1206,9 @@ export default function App() {
         <Sidebar tab={tab} setTab={setTab} plan={plan} unreadCount={unreadCount} />
       </div>
       <main className="flex-1 overflow-y-auto relative" style={{ zIndex: 10 }}>
-        {tab === "dashboard" && <DashboardTab plan={plan} allocation={allocation} setTab={setTab} />}
+        {tab === "dashboard" && <DashboardTab plan={plan} allocation={allocation} bookings={bookings} setTab={setTab} />}
         {tab === "budget"    && <BudgetTab plan={plan} allocation={allocation} setAllocation={setAllocation} />}
-        {tab === "vendors"   && <VendorsTab plan={plan} onMessage={messageVendor} />}
+        {tab === "vendors"   && <VendorsTab plan={plan} bookings={bookings} onToggleBook={toggleBook} onMessage={messageVendor} />}
         {tab === "messages"  && <MessagesTab plan={plan} threads={threads} setThreads={setThreads} activeId={activeThreadId} setActiveId={setActiveThreadId} />}
       </main>
     </div>
