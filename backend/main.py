@@ -17,12 +17,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Grok's API is OpenAI-compatible, so we use the openai package with xAI's URL.
-MODEL = os.getenv("GROK_MODEL", "")
+# Grok (xAI), Groq and Gemini all offer OpenAI-compatible APIs, so one client works for any
+# of them: just change LLM_BASE_URL / LLM_MODEL / LLM_API_KEY in .env.
+MODEL = os.getenv("LLM_MODEL", "")
 
 
 def get_client() -> OpenAI:
-    return OpenAI(api_key=os.getenv("XAI_API_KEY"), base_url="https://api.x.ai/v1")
+    return OpenAI(api_key=os.getenv("LLM_API_KEY"), base_url=os.getenv("LLM_BASE_URL"))
 
 SYSTEM_PROMPT = (
     "You are Partner, a helpful Indian wedding planning assistant. "
@@ -75,8 +76,8 @@ def health():
 
 @app.post("/chat")
 def chat(req: ChatRequest):
-    if not os.getenv("XAI_API_KEY") or not MODEL:
-        raise HTTPException(500, "Set XAI_API_KEY and GROK_MODEL in backend/.env")
+    if not os.getenv("LLM_API_KEY") or not os.getenv("LLM_BASE_URL") or not MODEL:
+        raise HTTPException(500, "Set LLM_API_KEY, LLM_BASE_URL and LLM_MODEL in backend/.env")
 
     client = get_client()
     messages = [{"role": "system", "content": SYSTEM_PROMPT}, *req.messages]
