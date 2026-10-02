@@ -13,20 +13,15 @@ def cities():
 
 @router.get("/vendors")
 def vendors(city: str, guests: int = 200, days: int = 3):
-    """Vendors in a city. Real listings (OpenStreetMap) come first, most complete first; then sample vendors by Partner score."""
+    """Vendors in a city. Highest Partner score first."""
     rows = vendors_in_city(city)
     if not rows:
         raise HTTPException(404, f"No vendors listed for {city} yet.")
     guests, days = max(1, guests), max(1, days)
     profiles = [vendor_profile(v, guests, days) for v in rows]
 
-    def order(p: dict):
-        if p["source"] == "osm":
-            return (0, -(bool(p["phone"]) + bool(p["website"])), p["name"].lower())
-        return (1, -p["partnerScore"], p["name"].lower())
-
-    profiles.sort(key=order)
+    profiles.sort(key=lambda p: (-(p["partnerScore"] or 0), p["name"].lower()))
     return {
         "city": rows[0]["city"], "count": len(profiles), "realCount": sum(1 for p in profiles if p["source"] == "osm"),
-        "attribution": "Real listings © OpenStreetMap contributors (ODbL)", "vendors": profiles,
+        "attribution": "Listings © OpenStreetMap contributors (ODbL)", "vendors": profiles,
     }

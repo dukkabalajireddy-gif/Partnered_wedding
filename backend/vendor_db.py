@@ -160,9 +160,14 @@ def _generate(city: str, meta: dict) -> list[dict]:
     return out
 
 
-VENDORS: list[dict] = [make(r) for r in _ROWS] + [
-    v for city, meta in CITIES.items() if meta.get("generate", True) for v in _generate(city, meta)
-]
+# The fictional sample vendors were only scaffolding for the prototype. Now that real listings exist they are
+# switched off: set SHOW_SAMPLE_VENDORS=1 in backend/.env to bring them back for a demo.
+import os  # noqa: E402
+
+SHOW_SAMPLE_VENDORS = os.getenv("SHOW_SAMPLE_VENDORS") == "1"
+VENDORS: list[dict] = (
+    [make(r) for r in _ROWS] + [v for city, meta in CITIES.items() if meta.get("generate", True) for v in _generate(city, meta)]
+) if SHOW_SAMPLE_VENDORS else []
 for _v in VENDORS:
     _v["source"] = "sample"  # fictional: generated for the prototype
 
@@ -181,6 +186,29 @@ def _km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 12742 * math.asin(math.sqrt(a))
 
 
+def _listing_score(r: dict) -> tuple[int, list[dict]]:
+    """A 35-95 score for a real listing, from what is publicly known about it: how complete and verifiable the
+    listing is, plus signs of being a well-known business (a Wikipedia/Wikidata entry or chain brand) and star
+    class for hotels. It is NOT built from customer reviews, because none exist for these listings yet."""
+    stars_raw = str(r.get("stars") or "").replace("+", "")
+    stars = int(stars_raw) if stars_raw.isdigit() else 0
+    hotel = r["category"] == "hotels"
+    checks = [
+        ("Phone number listed", bool(r.get("phone")), 15),
+        ("Website listed", bool(r.get("website")), 15),
+        ("Email listed", bool(r.get("email")), 8),
+        ("Opening hours listed", bool(r.get("hours")), 7),
+        ("Street address listed", bool(r.get("street") or r.get("suburb")), 8),
+        ("Well known: Wikipedia/Wikidata entry or chain brand", bool(r.get("wikidata") or r.get("brand")), 15),
+    ]
+    if hotel:
+        checks += [("Star-rated property (3 stars or more)", stars >= 3, 12), ("Listed as an events venue", bool(r.get("venue")), 8)]
+    possible = sum(p for _, _, p in checks)
+    earned = sum(p for _, ok, p in checks if ok)
+    factors = [{"label": label, "ok": ok, "points": p} for label, ok, p in checks]
+    return round(35 + 60 * earned / possible), factors
+
+
 def _load_real() -> list[dict]:
     """Real places OpenStreetMap knows about. They have NO ratings, prices or availability: those stay None, never guessed."""
     path = Path(__file__).parent / "data" / "osm_vendors.json"
@@ -195,7 +223,9 @@ def _load_real() -> list[dict]:
         meta, bbox = CITIES.get(r["city"]), CITY_BBOX.get(r["city"])
         if not meta or not bbox:
             continue
+        score, factors = _listing_score(r)
         out.append({
+            "listing_score": score, "score_factors": factors,
             "id": r["id"], "name": r["name"], "category": r["category"], "city": r["city"],
             "area": r.get("suburb") or r.get("street") or "",
             "tier": 2,  # price level unknown: use the typical mid band for estimates, and say so
@@ -276,15 +306,16 @@ _BLURB = {
 }
 
 
-_OSM_KIND = {"hotels": "venue or hotel", "catering": "caterer", "photography": "photo studio", "decoration": "florist",
-             "attire": "wedding shop", "gifts": "gift shop"}
+_OSM_KIND = {"hotels": "venue or hotel", "catering": "caterer", "photography": "photo studio", "decoration": "decorator or florist",
+             "attire": "bridal or wedding-wear shop", "gifts": "gift shop", "music": "music business", "transport": "vehicle rental business",
+             "logistics": "courier or logistics business"}
 
 
 def partner_score(v: dict) -> int | None:
-    """One 0-100 number summarising a vendor: rating 40%, reliability 30%, response time 15%, premium look 15%.
-    Real listings have no such data, so they get no score (None) instead of a made-up one."""
+    """One 0-100 number summarising a vendor. Sample vendors: rating 40%, reliability 30%, response time 15%, premium look 15%.
+    Real listings have no reviews, so their score comes from the listing itself (see _listing_score)."""
     if v.get("rating") is None:
-        return None
+        return v.get("listing_score")
     return round(100 * (0.40 * (v["rating"] - 3.5) / 1.5 + 0.30 * v["reliability"]
                         + 0.15 * (1 - min(v["response_hours"], 24) / 24) + 0.15 * v["premium_look"]))
 
@@ -295,10 +326,10 @@ def vendor_profile(v: dict, guests: int, days: int) -> dict:
         return {
             "id": v["id"], "name": v["name"], "category": v["category"], "city": v["city"], "area": v["area"],
             "tier": 2, "priceBand": "", "rating": None, "reliability": None, "responseHours": None, "premiumLook": None,
-            "distanceKm": v["distance_km"], "capacity": None, "partnerScore": None,
+            "distanceKm": v["distance_km"], "capacity": None, "partnerScore": v["listing_score"], "scoreFactors": v["score_factors"],
             "estCost": estimate_cost(v, guests, days), "estCostTypical": True,
-            "tag": "Real listing", "image": None, "source": "osm",
-            "description": f"A {kind} listed on OpenStreetMap in {v['city']}. No ratings or prices are published for it yet: message them to ask about availability and a quote.",
+            "tag": "Listed", "image": None, "source": "osm",
+            "description": f"A {kind} in {v['city']}. No customer reviews or published prices yet: message them to ask about availability and a quote.",
             "phone": v["phone"], "email": v["email"], "hours": v["hours"], "website": v["website"],
             "osmUrl": f"https://www.openstreetmap.org/{v['osm_type']}/{v['osm_id']}", "lat": v["lat"], "lon": v["lon"],
         }

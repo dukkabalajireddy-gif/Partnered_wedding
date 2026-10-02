@@ -8,8 +8,8 @@ type BudgetAllocation = Record<Category, number>;
 const API_BASE = import.meta.env.DEV ? "http://localhost:8000" : "";
 
 // A vendor as the marketplace backend describes it (GET /api/vendors).
-// "osm" = a real listing from OpenStreetMap (no ratings or prices exist for it, so those are null);
-// "sample" = a fictional vendor used to fill gaps in the prototype.
+// "osm" = a real listing from OpenStreetMap (no reviews or prices exist for it, so those are null; its Partner score comes from the listing itself);
+// "sample" = a fictional demo vendor, switched off on the backend unless SHOW_SAMPLE_VENDORS=1.
 interface MarketVendor {
   id: string; name: string; category: Category; city: string; area: string;
   tier: number; priceBand: string; rating: number | null; reliability: number | null; responseHours: number | null;
@@ -17,6 +17,7 @@ interface MarketVendor {
   estCost: number; estCostTypical: boolean; tag: string; image: string | null; description: string;
   phone: string | null; email: string | null; hours: string | null; website: string | null;
   source: "osm" | "sample"; osmUrl: string | null;
+  scoreFactors?: { label: string; ok: boolean; points: number }[];
 }
 // The few fields needed to open a chat or record a booking with a vendor.
 type VendorRef = Pick<MarketVendor, "id" | "name" | "category" | "area" | "city">;
@@ -672,7 +673,7 @@ function DashboardTab({ plan, allocation, bookings, checklistDone, onToggleCheck
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-[1500px] mx-auto w-full space-y-5 sm:space-y-6">
       <div>
-        <h1 className="text-3xl font-medium text-gray-800">Namaste,{plan.name} <span role="img" aria-label="Namaste">🙏</span></h1>
+        <h1 className="text-3xl font-medium text-gray-800">Hi {plan.name} & {plan.partnerName} <span role="img" aria-label="Namaste">🙏🏻</span></h1>
         <p className="text-sm text-gray-600 mt-1">Here's where your shaadi stands today. Tick off what you've finished, and the agent works on the rest.</p>
       </div>
 
@@ -1099,17 +1100,35 @@ function CitySelect({ cities, value, onChange }: { cities: CityInfo[]; value: st
   );
 }
 
-// Shown instead of a photo for real listings: we have no picture of their business, so we don't use a stock one.
-function RealListingTile({ category, className = "" }: { category: Category; className?: string }) {
+// We have no photos of these businesses (and would not have the right to use them), so every vendor gets an
+// icon for its kind of work instead: it still tells a florist from a caterer at a glance.
+const CATEGORY_ICON: Record<Category, React.ReactNode> = {
+  hotels: <path d="M3 21h18M5 21V9l7-5 7 5v12M9 21v-6h6v6M9 11h.01M15 11h.01" />,
+  catering: <path d="M7 3v8M5 3v5a2 2 0 0 0 4 0V3M7 11v10M17 3c-2 1.5-3 4-3 7 0 2 1 3 3 3v8" />,
+  decoration: <><circle cx="12" cy="12" r="2.5" /><path d="M12 9.5C10 6 11 3 12 3s2 3 0 6.5zM14.5 12C18 10 21 11 21 12s-3 2-6.5 0zM12 14.5c2 3.5 1 6.5 0 6.5s-2-3 0-6.5zM9.5 12C6 14 3 13 3 12s3-2 6.5 0z" /></>,
+  photography: <><path d="M4 8h3l2-3h6l2 3h3v11H4z" /><circle cx="12" cy="13" r="3.5" /></>,
+  attire: <path d="M12 6a2 2 0 1 1 2 2c-1 .5-2 1-2 2v1M12 11 3 17a1 1 0 0 0 .6 1.8h16.8A1 1 0 0 0 21 17z" />,
+  music: <><path d="M9 18V6l10-2v12" /><circle cx="6.5" cy="18" r="2.5" /><circle cx="16.5" cy="16" r="2.5" /></>,
+  transport: <path d="M4 15v-4l2-5h12l2 5v4M3 15h18v3H3zM7 18v2M17 18v2M6.5 11h11" />,
+  gifts: <><rect x="3" y="8" width="18" height="4" /><path d="M5 12v9h14v-9M12 8v13M12 8C10 8 7 7 7 5s3-2 5 3c2-5 5-5 5-3s-3 3-5 3z" /></>,
+  logistics: <><path d="M2 6h11v10H2zM13 9h4l3 3v4h-7" /><circle cx="6" cy="18" r="1.6" /><circle cx="17" cy="18" r="1.6" /></>,
+};
+
+function CategoryTile({ category, className = "" }: { category: Category; className?: string }) {
+  const meta = CATEGORY_META[category];
   return (
-    <div className={`flex flex-col items-center justify-center text-center ${className}`} style={{ background: "linear-gradient(135deg, #fdf2f4, #fefdf0)" }}>
-      <div className="text-4xl" aria-hidden="true">{CATEGORY_META[category].icon}</div>
-      <div className="text-xs mt-1 text-gray-700">Real listing · no photo yet</div>
+    <div className={`flex flex-col items-center justify-center gap-1.5 text-center ${className}`}
+      style={{ background: `linear-gradient(135deg, ${meta.color}26, #fefdf0)` }} role="img" aria-label={meta.label}>
+      <div className="w-12 h-12 rounded-full bg-white flex items-center justify-center" style={{ boxShadow: "0 1px 4px rgba(0,0,0,0.12)" }}>
+        <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke={meta.color} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          {CATEGORY_ICON[category]}
+        </svg>
+      </div>
+      <div className="text-xs font-medium text-gray-800">{meta.label}</div>
     </div>
   );
 }
-
-const OSM_CREDIT = "Real listings © OpenStreetMap contributors (ODbL)";
+const OSM_CREDIT = "Listing data © OpenStreetMap contributors (ODbL)";
 
 function VendorDetail({ vendor, plan, saved, booked, onToggleSave, onToggleBook, onBack, onMessage }: {
   vendor: MarketVendor; plan: WeddingPlan; saved: boolean; booked: boolean; onToggleSave: () => void;
@@ -1139,8 +1158,8 @@ function VendorDetail({ vendor, plan, saved, booked, onToggleSave, onToggleBook,
           {vendor.image
             ? <img src={`https://images.unsplash.com/${vendor.image}?w=1000&h=240&fit=crop&auto=format`} alt={vendor.name} onError={(e) => { e.currentTarget.style.visibility = "hidden"; }}
                 className="w-full h-28 sm:h-36 object-cover" style={{ background: "#fdf2f4" }} />
-            : <RealListingTile category={vendor.category} className="w-full h-28 sm:h-36" />}
-          <div className="absolute top-4 left-4 text-sm font-medium px-3 py-1 rounded-full" style={{ background: "rgba(255,255,255,0.93)", color: "#a8213b" }}>{real ? "📍 Real listing" : vendor.tag}</div>
+            : <CategoryTile category={vendor.category} className="w-full h-28 sm:h-36" />}
+          <div className="absolute top-4 left-4 text-sm font-medium px-3 py-1 rounded-full" style={{ background: "rgba(255,255,255,0.93)", color: "#a8213b" }}>{real ? meta.label : vendor.tag}</div>
           <button onClick={onToggleSave} aria-label={saved ? "Remove from saved" : "Save vendor"}
             className="absolute top-4 right-4 w-11 h-11 sm:w-9 sm:h-9 rounded-full flex items-center justify-center text-lg"
             style={saved ? { background: "#a8213b", color: "#fff" } : { background: "rgba(255,255,255,0.9)", color: "#333" }}>
@@ -1155,7 +1174,7 @@ function VendorDetail({ vendor, plan, saved, booked, onToggleSave, onToggleBook,
               <div className="text-sm text-gray-600 mt-1">{meta.icon} {meta.label} · {vendor.area ? `${vendor.area}, ` : ""}{vendor.city}</div>
               {vendor.rating !== null
                 ? <div className="flex items-center gap-2 mt-2 text-lg"><Stars rating={vendor.rating} /><span className="text-sm font-semibold text-gray-800">{vendor.rating.toFixed(1)}</span></div>
-                : <div className="mt-2 text-sm font-medium text-gray-700">Not rated yet</div>}
+                : <div className="mt-2 text-sm font-medium text-gray-700">No reviews yet</div>}
             </div>
             <div className="sm:text-right shrink-0">
               {vendor.partnerScore !== null ? (
@@ -1182,9 +1201,18 @@ function VendorDetail({ vendor, plan, saved, booked, onToggleSave, onToggleBook,
                   <p className="text-xs text-gray-600">Partner score combines rating, reliability, response time and premium look.</p>
                 </>
               ) : (
-                <p className="text-sm text-gray-700 leading-relaxed">
-                  No ratings yet. This is a real business from OpenStreetMap, so we hold no reviews, reliability or response-time data for it. Its scorecard will build up as couples message and book through Partnered.
-                </p>
+                <div className="space-y-2">
+                  <p className="text-sm text-gray-700 leading-relaxed">No customer reviews yet, so this score is built from the listing itself. It will include reviews as couples book through Partnered.</p>
+                  <ul className="space-y-1.5">
+                    {(vendor.scoreFactors ?? []).map((f) => (
+                      <li key={f.label} className="flex items-start gap-2 text-sm" style={{ color: f.ok ? "#1f4d12" : "#555" }}>
+                        <span aria-hidden="true" className="font-semibold">{f.ok ? "✓" : "○"}</span>
+                        <span className="flex-1">{f.label}</span>
+                        <span className="text-xs">{f.ok ? `+${f.points}` : ""}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               )}
             </div>
 
@@ -1237,7 +1265,7 @@ function VendorDetail({ vendor, plan, saved, booked, onToggleSave, onToggleBook,
   );
 }
 
-type VendorSort = "score" | "rating" | "price" | "distance";
+type VendorSort = "score" | "price" | "distance";
 
 function VendorsTab({ plan, cities, city, setCity, bookings, onToggleBook, onMessage }: {
   plan: WeddingPlan; cities: CityInfo[]; city: string; setCity: (c: string) => void;
@@ -1246,7 +1274,6 @@ function VendorsTab({ plan, cities, city, setCity, bookings, onToggleBook, onMes
   const [activeCategory, setActiveCategory] = useState<Category | "all">("all");
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<VendorSort>("score");
-  const [source, setSource] = useState<"all" | "osm" | "sample">("all");
   const [saved, setSaved] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<MarketVendor | null>(null);
   const [vendors, setVendors] = useState<MarketVendor[]>([]);
@@ -1270,18 +1297,14 @@ function VendorsTab({ plan, cities, city, setCity, bookings, onToggleBook, onMes
     const q = search.trim().toLowerCase();
     const rows = vendors.filter((v) =>
       (activeCategory === "all" || v.category === activeCategory) &&
-      (source === "all" || v.source === source) &&
       (!q || v.name.toLowerCase().includes(q) || v.area.toLowerCase().includes(q)));
-    // Real listings have no rating or score, so they sort first and in the backend order; sample vendors follow by score.
     const by: Record<VendorSort, (a: MarketVendor, b: MarketVendor) => number> = {
-      score: (a, b) => (a.source === b.source ? (b.partnerScore ?? 0) - (a.partnerScore ?? 0) : a.source === "osm" ? -1 : 1),
-      rating: (a, b) => (b.rating ?? -1) - (a.rating ?? -1),
+      score: (a, b) => (b.partnerScore ?? 0) - (a.partnerScore ?? 0),
       price: (a, b) => a.estCost - b.estCost,
       distance: (a, b) => a.distanceKm - b.distanceKm,
     };
     return [...rows].sort(by[sort]);
-  }, [vendors, activeCategory, source, search, sort]);
-  const realCount = vendors.filter((v) => v.source === "osm").length;
+  }, [vendors, activeCategory, search, sort]);
 
   const toggle = (id: string) => setSaved((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
@@ -1318,7 +1341,6 @@ function VendorsTab({ plan, cities, city, setCity, bookings, onToggleBook, onMes
           Sort by
           <select value={sort} onChange={(e) => setSort(e.target.value as VendorSort)} className="rounded-xl px-3 py-2.5 bg-white text-sm focus:outline-none" style={{ border: "1px solid #fbe8ec" }}>
             <option value="score">Best match</option>
-            <option value="rating">Rating</option>
             <option value="price">Price: low to high</option>
             <option value="distance">Distance</option>
           </select>
@@ -1337,20 +1359,6 @@ function VendorsTab({ plan, cities, city, setCity, bookings, onToggleBook, onMes
         ))}
       </div>
 
-      {status === "ready" && (
-        <div className="flex gap-2 overflow-x-auto sm:flex-wrap -mx-4 px-4 sm:mx-0 sm:px-0 [&>button]:shrink-0 [&>button]:whitespace-nowrap">
-          {([["all", `All (${vendors.length})`], ["osm", `📍 Real listings (${realCount})`], ["sample", `Sample vendors (${vendors.length - realCount})`]] as const).map(([k, label]) => (
-            <button key={k} onClick={() => setSource(k)} className="px-4 py-2 sm:py-1.5 rounded-full text-sm font-medium"
-              style={source === k ? { background: "#1a1a1a", color: "#fff" } : { background: "#fff", color: "#1a1a1a", border: "1px solid #ddd" }}>{label}</button>
-          ))}
-        </div>
-      )}
-      {status === "ready" && realCount === 0 && (
-        <div className="rounded-xl p-3 text-sm text-gray-800" style={{ background: "#fffdf0", border: "1px solid #fbf0a1" }}>
-          No real listings have been imported for {city} yet, so you are seeing sample vendors only.
-        </div>
-      )}
-
       {status === "loading" && <div className="text-sm text-gray-700 py-10 text-center">Loading vendors…</div>}
       {status === "error" && <div className="text-sm font-medium py-10 text-center" style={{ color: "#a8213b" }}>{error}</div>}
 
@@ -1364,8 +1372,8 @@ function VendorsTab({ plan, cities, city, setCity, bookings, onToggleBook, onMes
                   {v.image
                     ? <img src={`https://images.unsplash.com/${v.image}?w=400&h=160&fit=crop&auto=format`} alt={v.name} loading="lazy" onError={(e) => { e.currentTarget.style.visibility = "hidden"; }}
                         className="w-full h-24 object-cover" style={{ background: "#fdf2f4" }} />
-                    : <RealListingTile category={v.category} className="w-full h-24" />}
-                  <div className="absolute top-2 left-2 text-xs font-medium px-2 py-1 rounded-full" style={{ background: "rgba(255,255,255,0.92)", color: "#a8213b" }}>{v.source === "osm" ? "📍 Real listing" : v.tag}</div>
+                    : <CategoryTile category={v.category} className="w-full h-24" />}
+                  <div className={`absolute top-2 left-2 text-xs font-medium px-2 py-1 rounded-full ${v.source === "osm" ? "hidden" : ""}`} style={{ background: "rgba(255,255,255,0.92)", color: "#a8213b" }}>{v.tag}</div>
                   <button onClick={() => toggle(v.id)} aria-label={saved.has(v.id) ? "Remove from saved" : "Save vendor"}
                     className="absolute top-2 right-2 w-11 h-11 sm:w-9 sm:h-9 rounded-full flex items-center justify-center text-lg transition-all"
                     style={saved.has(v.id) ? { background: "#a8213b", color: "#fff" } : { background: "rgba(255,255,255,0.85)", color: "#333" }}>
@@ -1387,9 +1395,9 @@ function VendorsTab({ plan, cities, city, setCity, bookings, onToggleBook, onMes
                   <div className="mt-3 flex items-center justify-between gap-2">
                     {v.rating !== null
                       ? <div className="flex items-center gap-1.5"><Stars rating={v.rating} /><span className="text-xs text-gray-800 font-medium">{v.rating.toFixed(1)}</span></div>
-                      : <span className="text-xs text-gray-700">Not rated yet</span>}
+                      : <span className="text-xs text-gray-700">No reviews yet</span>}
                     {v.partnerScore !== null
-                      ? <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ background: "#fdf2f4", color: "#a8213b" }} title="Partner score">{v.partnerScore}/100</span>
+                      ? <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ background: "#fdf2f4", color: "#a8213b" }} title="Partner score: how complete and well known this listing is. Customer reviews will be added later.">{v.partnerScore}/100</span>
                       : <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: "#f1f1f1", color: "#333" }} title="No ratings exist yet for real listings">{v.phone ? "📞 phone listed" : "ask for quote"}</span>}
                   </div>
                   <div className="mt-3 flex gap-2">
@@ -1402,8 +1410,7 @@ function VendorsTab({ plan, cities, city, setCity, bookings, onToggleBook, onMes
             {filtered.length === 0 && <div className="col-span-full text-center py-16 text-gray-700 text-sm">No vendors match. Try another category or search.</div>}
           </div>
           <p className="text-xs text-gray-600">
-            {realCount > 0 && <>{OSM_CREDIT}: they have no ratings or published prices yet. </>}
-            Sample vendors are fictional. All prices are estimates for {plan.guestCount} guests over {days} day{days > 1 ? "s" : ""}, not quotes.
+            {OSM_CREDIT}. Partner scores reflect how complete and well known a listing is, not customer reviews. All prices are estimates for {plan.guestCount} guests over {days} day{days > 1 ? "s" : ""}, not quotes.
           </p>
         </>
       )}
@@ -1467,7 +1474,7 @@ function MessagesTab({ plan, threads, setThreads, activeId, setActiveId, onNavig
     setView("chat");
   };
 
-  const quickReplies = ["Confirmed! ✓", "Can we reschedule?", "Please send the invoice", "What's the advance amount?", "Thank you 🙏"];
+  const quickReplies = ["Confirmed! ✓", "Can we reschedule?", "Please send the invoice", "What's the advance amount?", "Thank you 🙏🏻"];
 
   return (
     <div className="flex overflow-hidden h-full">
@@ -1667,7 +1674,7 @@ function AgentPanel({ plan, agent, setAgent, setAllocation, completed, onMessage
   const sentences = result ? result.summary.split(/(?<=[.!?])\s+/).filter(Boolean) : [];
   const pickedCats = cats.filter((k) => result?.shortlists[k]?.length);
   const topPicks = pickedCats.map((k) => result!.shortlists[k]![0]);
-  const realTop = topPicks.filter((p) => p.source === "osm").length;
+  const avgScore = topPicks.length ? Math.round(topPicks.reduce((a, p) => a + p.score, 0) / topPicks.length) : 0;
   const activeCat = pickCat && pickedCats.includes(pickCat) ? pickCat : pickedCats[0];
   const maxAlloc = result ? Math.max(...cats.map((k) => result.allocation[k])) : 1;
   const TABS: { id: typeof view; label: string }[] = [
@@ -1741,7 +1748,7 @@ function AgentPanel({ plan, agent, setAgent, setAllocation, completed, onMessage
                     { label: "To allocate", value: inr(result.envelope.allocatable) },
                     { label: "Kept as reserve", value: inr(result.envelope.reserve) },
                     { label: "Categories with picks", value: `${pickedCats.length} of ${cats.length}` },
-                    { label: "Real listings in top picks", value: `${realTop} of ${topPicks.length}` },
+                    { label: "Average top-pick score", value: `${avgScore}/100` },
                   ].map((s) => (
                     <div key={s.label} className="rounded-xl p-3 min-w-0" style={{ background: "linear-gradient(135deg, #fdf2f4, #fefdf0)", border: "1px solid #f5c6d0" }}>
                       <div className="text-xs text-gray-700">{s.label}</div>
@@ -1807,7 +1814,6 @@ function AgentPanel({ plan, agent, setAgent, setAllocation, completed, onMessage
                               <span className="text-sm font-semibold text-gray-800">{p.name}</span>
                               {i === 0 && <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: "#a8213b", color: "#fff" }}>Top pick</span>}
                               <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: f.bg, color: f.color, border: `1px solid ${f.color}` }}>{f.label}</span>
-                              <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: p.source === "osm" ? "#eaf3ff" : "#f1f1f1", color: "#222", border: "1px solid #cfd8e3" }}>{p.source === "osm" ? "📍 Real listing" : "Sample"}</span>
                             </div>
                             <div className="text-sm text-gray-700">{p.area} · est. {inr(p.estCost)}</div>
                             <div className="text-xs text-gray-600">{p.reasons.slice(0, 2).join(" · ")}</div>
@@ -1826,7 +1832,7 @@ function AgentPanel({ plan, agent, setAgent, setAllocation, completed, onMessage
           </div>
         </div>
       )}
-      <p className="text-xs text-gray-600 px-1">Prototype: sample vendors are fictional, real listings come from OpenStreetMap, and availability is simulated.</p>
+      <p className="text-xs text-gray-600 px-1">Prototype: costs are typical estimates, scores reflect listing quality rather than reviews, and availability stays unknown until vendors reply.</p>
     </div>
   );
 }

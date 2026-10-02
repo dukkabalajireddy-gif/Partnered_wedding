@@ -36,9 +36,10 @@ ENDPOINTS = ["https://overpass-api.de/api/interpreter"]
 USER_AGENT = "PartneredMVP/0.1 (wedding planner prototype)"
 
 # How many listings to keep per category per city (the richest ones first)
-CAPS = {"hotels": 30, "catering": 15, "photography": 20, "decoration": 15, "attire": 15, "gifts": 8}
+CAPS = {"hotels": 30, "catering": 15, "photography": 20, "decoration": 15, "attire": 15, "gifts": 8,
+        "music": 10, "transport": 12, "logistics": 8}
 RICH_TAGS = ["phone", "contact:phone", "website", "contact:website", "email", "contact:email", "opening_hours",
-             "stars", "addr:street", "addr:suburb", "addr:full", "wikidata", "brand"]
+             "stars", "addr:street", "addr:suburb", "addr:full", "wikidata", "wikipedia", "brand", "operator", "capacity", "rooms"]
 
 
 def query(bbox):
@@ -54,6 +55,14 @@ def query(bbox):
   nwr["shop"="florist"]({b});
   nwr["tourism"~"^(hotel|resort)$"]["name"]({b});
   nwr["shop"="gift"]["name"]({b});
+  nwr["shop"="party"]["name"]({b});
+  nwr["amenity"="car_rental"]["name"]({b});
+  nwr["office"~"^(courier|logistics)$"]["name"]({b});
+  nwr["shop"~"^(musical_instrument|music)$"]["name"]({b});
+  nwr["shop"~"^(clothes|boutique|tailor|fabric)$"]["name"~"bridal|lehenga|sherwani|saree|sari|ethnic|couture|wedding",i]({b});
+  nwr["shop"]["name"~"decorat|mandap|tent house|caterer|catering|event|planner",i]({b});
+  nwr["office"]["name"~"event|planner|decorat|wedding|catering",i]({b});
+  nwr["craft"]["name"~"decorat|caterer|catering|dj|sound|dhol",i]({b});
 );
 out center tags;"""
 
@@ -108,6 +117,23 @@ def category_of(t: dict) -> str | None:
         return "attire"
     if t.get("shop") == "gift":
         return "gifts"
+    if t.get("amenity") == "car_rental":
+        return "transport"
+    if t.get("office") in ("courier", "logistics"):
+        return "logistics"
+    if t.get("shop") in ("musical_instrument", "music"):
+        return "music"
+    if t.get("shop") == "party":
+        return "decoration"
+    # Everything else was matched by a wording hint in its name
+    if any(w in name for w in ("bridal", "lehenga", "sherwani", "saree", "sari", "ethnic", "couture", "boutique")):
+        return "attire"
+    if any(w in name for w in ("caterer", "catering")):
+        return "catering"
+    if any(w in name for w in ("decorat", "mandap", "tent house", "event", "planner", "wedding")):
+        return "decoration"
+    if any(w in name.split() or w in name for w in ("dj", "dhol", "sound", "band")):
+        return "music"
     return None
 
 
@@ -154,7 +180,10 @@ def build(city: str, elements: list[dict]) -> list[dict]:
             "email": first(t.get("email") or t.get("contact:email")),
             "hours": t.get("opening_hours"),
             "street": t.get("addr:street"), "suburb": t.get("addr:suburb") or t.get("addr:neighbourhood"),
-            "stars": t.get("stars"), "osmType": el["type"], "osmId": el["id"], "_rich": rich,
+            "stars": t.get("stars"), "wikidata": bool(t.get("wikidata") or t.get("wikipedia")),
+            "brand": t.get("brand") or t.get("operator"), "capacity": t.get("capacity"), "rooms": t.get("rooms"),
+            "venue": t.get("amenity") == "events_venue",
+            "osmType": el["type"], "osmId": el["id"], "_rich": rich,
         })
     out = []
     for cat, rows in by_cat.items():
@@ -171,7 +200,7 @@ def main():
     path = Path(__file__).parent / "data" / "osm_vendors.json"
     path.parent.mkdir(exist_ok=True)
     existing = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {"vendors": []}
-    vendors = [v for v in existing["vendors"] if v["city"] not in cities]
+    vendors = list(existing["vendors"])
     for i, (city, bbox) in enumerate(cities.items(), 1):
         print(f"[{i}/{len(cities)}] {city} ...", flush=True)
         try:
@@ -183,7 +212,7 @@ def main():
         for r in rows:
             by[r["category"]] = by.get(r["category"], 0) + 1
         print(f"    kept {len(rows)}: {by}", flush=True)
-        vendors += rows
+        vendors = [v for v in vendors if v["city"] != city] + rows  # replace the city only once its refresh succeeded
         path.write_text(json.dumps({
             "source": "OpenStreetMap contributors (ODbL), https://www.openstreetmap.org/copyright",
             "fetchedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),

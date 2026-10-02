@@ -174,7 +174,7 @@ def score_vendor(v: dict, cost: int, alloc: int, weights: dict) -> tuple[int, di
     unknown = 0.5  # real listings have no rating, reliability or response data: neutral, not invented
     parts = {
         "price_fit": 1.0 if cost <= alloc else max(0.0, 1 - (cost - alloc) / max(1, alloc)),
-        "quality": unknown if v["rating"] is None else min(1.0, max(0.0, (v["rating"] - 3.5) / 1.5)),
+        "quality": (unknown if v.get("listing_score") is None else (v["listing_score"] - 35) / 60) if v["rating"] is None else min(1.0, max(0.0, (v["rating"] - 3.5) / 1.5)),
         "reliability": unknown if v["reliability"] is None else v["reliability"],
         "premium": unknown if v["premium_look"] is None else v["premium_look"],
         "distance": max(0.0, 1 - v["distance_km"] / 40),
@@ -191,7 +191,7 @@ def reasons_for(v: dict, cost: int, alloc: int, fit: str) -> list[str]:
         money = f"{inr(cost - alloc)} over your {inr(alloc)} allocation (est. {inr(cost)})"
     if v["source"] == "osm":
         contact = "phone listed" if v.get("phone") else ("website listed" if v.get("website") else "no contact details listed")
-        return [money, "Real listing (OpenStreetMap): no ratings or prices published yet", f"{v['distance_km']} km from the city centre, {contact}"]
+        return [money, f"Partner score {v['listing_score']}/100, based on how complete and well known the listing is (no reviews yet)", f"{v['distance_km']} km from the city centre, {contact}"]
     return [money, f"{v['rating']}★ and {round(v['reliability'] * 100)}% reliable", f"Replies in about {v['response_hours']}h, {v['distance_km']} km away"]
 
 
@@ -230,7 +230,7 @@ def run_agent(req: RunIn):
     # 3. Search the vendor database
     skipped = [c for c in LABELS if c in req.completed]  # the couple already did these: do not touch them
     everything = vendors_in_city(plan.location)
-    pool = prefer_real([v for v in everything if v["category"] not in skipped])
+    pool = [v for v in everything if v["category"] not in skipped]
 
     def early_exit(detail: str, summary: str):
         log(3, "Search your vendor database", detail, "warn")
@@ -244,9 +244,10 @@ def run_agent(req: RunIn):
         return early_exit("Every category with vendors is already marked done on your checklist.",
                           "You've marked every vendor item as done, so there is nothing left for me to search. Untick an item if you want me to work on it.")
     cats = sorted({v["category"] for v in pool}, key=lambda c: -alloc.get(c, 0))
+    no_listings = [c for c in LABELS if c not in skipped and c not in cats]
     log(3, "Search your vendor database",
-        f"Found {len(pool)} vendors in {plan.location} across {len(cats)} open categories: "
-        f"{sum(1 for v in pool if v['source'] == 'osm')} real listings (OpenStreetMap) and {sum(1 for v in pool if v['source'] == 'sample')} sample vendors filling the gaps."
+        f"Found {len(pool)} real listings in {plan.location} across {len(cats)} open categories."
+        + (f" No listings found yet for {', '.join(LABELS[c] for c in no_listings)}." if no_listings else "")
         + (f" Skipping {', '.join(LABELS[c] for c in skipped)}: you marked {'it' if len(skipped) == 1 else 'them'} done." if skipped else ""))
 
     # 4. External sources
@@ -291,7 +292,7 @@ def run_agent(req: RunIn):
         f"Checked {total_kept} vendors against {', '.join(days) or 'your date'}. "
         + (f"{len(unavailable)} are booked on at least one day: {'; '.join(unavailable[:4])}{'…' if len(unavailable) > 4 else ''}. " if unavailable else "All are free. ")
         + ("Real listings: availability is unknown until the vendor replies. " if any(r["v"]["source"] == "osm" for rows in candidates.values() for r in rows) else "")
-        + "Sample vendors use a simulated calendar; real calendars come from vendor onboarding.",
+        + "Real calendars arrive once vendors reply or are onboarded.",
         "info", {"simulated": True})
 
     # 7. Score
@@ -334,9 +335,9 @@ def run_agent(req: RunIn):
         "categoriesOverAllocation": stretch,
         "categoriesTheCoupleAlreadyFinishedAndIWillNotTouch": [LABELS[c] for c in skipped],
         "categoriesWhereEveryVendorIsBookedOnYourDates": [LABELS[c] for c in cats if not shortlists.get(c)],
-        "topPicksThatAreRealListingsWithNoRatingsYet": [LABELS[c] for c in cats if shortlists.get(c) and shortlists[c][0]["source"] == "osm"],
-        "topPicksThatAreSampleVendors": [LABELS[c] for c in cats if shortlists.get(c) and shortlists[c][0]["source"] == "sample"],
-        "noteOnPrices": "For real listings the cost is a typical estimate for the category, not a quote.",
+        "categoriesWithNoListingsYet": [LABELS[c] for c in no_listings],
+        "noteOnScores": "A vendor's score reflects how complete and well known its listing is. There are no customer reviews yet.",
+        "noteOnPrices": "Costs are typical estimates for the category, not quotes.",
     }
     summary, used_llm_summary = write_summary(facts)
     return {"events": events, "envelope": env, "allocation": alloc, "shortlists": shortlists, "preferences": prefs,
@@ -350,7 +351,8 @@ def write_summary(facts: dict) -> tuple[str, bool]:
         f"The top picks add up to about {facts['sumOfTopPicks']} against {facts['allocatable']}. "
         + (f"Over their category allocation: {', '.join(facts['categoriesOverAllocation'])}. " if facts["categoriesOverAllocation"] else "")
         + (f"Every vendor is booked on your dates for: {', '.join(facts['categoriesWhereEveryVendorIsBookedOnYourDates'])}. " if facts["categoriesWhereEveryVendorIsBookedOnYourDates"] else "")
-        + "Next I would request quotes from the shortlisted vendors."
+        + (f"No listings found yet for: {', '.join(facts['categoriesWithNoListingsYet'])}. " if facts["categoriesWithNoListingsYet"] else "")
+        + "Costs are typical estimates, not quotes. Next I would request quotes from the shortlisted vendors."
     )
     if not llm_ready():
         return fallback, False
@@ -358,7 +360,7 @@ def write_summary(facts: dict) -> tuple[str, bool]:
         text = chat_text(
             "You are Partner's wedding planning agent. Write a short summary for the bride in plain, warm English, max 110 words. "
             "Use ONLY the facts in the JSON; do not invent vendors, prices or availability, and copy amounts exactly as written. "
-            "Do not open with a greeting. Be clear which top picks are real listings (no ratings or quotes yet, costs are typical estimates) and which are sample vendors. State the feasibility honestly, say whether the top picks fit the budget "
+            "Do not open with a greeting. Mention that costs are typical estimates, not quotes, and that scores reflect listing quality rather than reviews. If categoriesWithNoListingsYet is not empty, say those categories have no listings yet. State the feasibility honestly, say whether the top picks fit the budget "
             "and which categories are the problem, and end with the next step: requesting quotes from shortlisted vendors.",
             str(facts),
         )
