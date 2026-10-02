@@ -1,0 +1,47 @@
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400&display=swap');
+@import 'tailwindcss';
+
+@theme inline {
+  /* Maroon scale */
+  --color-maroon-50:  #fdf2f4;
+  --color-maroon-100: #fbe8ec;
+  --color-maroon-200: #f5c6d0;
+  --color-maroon-300: #ec9aaa;
+  --color-maroon-400: #dc6278;
+  --color-maroon-500: #c93a52;
+  --color-maroon-600: #a8213b;
+  --color-maroon-700: #881a30;
+  --color-maroon-800: #6e1828;
+  --color-maroon-900: #5a1622;
+
+  /* Gold scale */
+  --color-gold-50:  #fefdf0;
+  --color-gold-100: #fdf9d3;
+  --color-gold-200: #fbf0a1;
+  --color-gold-300: #f7e05e;
+  --color-gold-400: #f2ca2a;
+  --color-gold-500: #e0b015;
+  --color-gold-600: #c08a0c;
+  --color-gold-700: #9a6a0a;
+  --color-gold-800: #7c5210;
+  --color-gold-900: #634213;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  font-family: 'Cormorant Garamond', serif;
+  background: #fdf8f0;
+  color: #2a1018;
+}
+
+/* Scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #f5c6d0 transparent;
+}
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-thumb { background: #ec9aaa; border-radius: 4px; }
+::-webkit-scrollbar-track { background: transparent; }

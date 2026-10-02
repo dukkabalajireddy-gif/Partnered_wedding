@@ -1,0 +1,10 @@
+{
+  "description": "Streamline wedding planning with a budget management tool and vendor communication platform, connecting brides and grooms to local services for a seamless experience.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
