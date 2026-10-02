@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from "react";
+import BlogsTab from "./Blogs";
 
 type Category = "attire" | "catering" | "decoration" | "gifts" | "logistics" | "transport" | "hotels" | "photography" | "music";
 type BudgetAllocation = Record<Category, number>;
@@ -526,6 +527,33 @@ const INSPIRATION_NAV: { id: Tab; label: string; icon: string }[] = [
   { id: "blogs",   label: "Blogs",           icon: "✐" },
 ];
 
+// "Powered by" marks for our three partners. These are plain text wordmarks with a small glyph:
+// swap in the official logo files (with each partner's permission) by giving a mark an `src`.
+const PARTNERS: { name: string; glyph: string; role: string; src?: string }[] = [
+  { name: "Gnani",      glyph: "🎙", role: "Voice" },
+  { name: "Delhivery",  glyph: "🚚", role: "Logistics" },
+  { name: "Pine Labs",  glyph: "🌲", role: "Payments" },
+];
+
+function PoweredBy({ className = "" }: { className?: string }) {
+  return (
+    <div className={className}>
+      <div className="text-xs font-semibold uppercase tracking-wider text-gray-600">Powered by</div>
+      <div className="mt-2 grid grid-cols-1 gap-1.5">
+        {PARTNERS.map((p) => (
+          <div key={p.name} className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 bg-white" style={{ border: "1px solid #f1e4e7" }} title={`${p.name}: ${p.role}`}>
+            {p.src
+              ? <img src={p.src} alt={p.name} className="h-5 w-auto" />
+              : <span className="text-sm leading-none" aria-hidden="true">{p.glyph}</span>}
+            <span className="text-sm font-semibold tracking-tight text-gray-800">{p.name}</span>
+            <span className="ml-auto text-xs text-gray-600">{p.role}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function Sidebar({ tab, setTab, plan, unreadCount }: { tab: Tab; setTab: (t: Tab) => void; plan: WeddingPlan; unreadCount: number }) {
   const daysLeft = useMemo(() => Math.max(0, Math.ceil((new Date(plan.date).getTime() - Date.now()) / 86400000)), [plan.date]);
   return (
@@ -554,7 +582,7 @@ function Sidebar({ tab, setTab, plan, unreadCount }: { tab: Tab; setTab: (t: Tab
         </div>
       </div>
 
-      <nav className="flex-1 px-3 py-4 space-y-0.5">
+      <nav className="flex-1 min-h-0 overflow-y-auto px-3 py-4 space-y-0.5">
         {NAV.map((n) => (
           <button key={n.id} onClick={() => setTab(n.id)}
             className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all"
@@ -584,6 +612,7 @@ function Sidebar({ tab, setTab, plan, unreadCount }: { tab: Tab; setTab: (t: Tab
       <div className="px-4 py-4" style={{ borderTop: "1px solid #fdf2f4" }}>
         <div className="text-xs text-gray-400">{new Date(plan.date).toLocaleDateString("en-IN", { month: "long", day: "numeric", year: "numeric" })}</div>
         <div className="text-xs mt-0.5" style={{ color: "#c08a0c" }}>{plan.guestCount} guests · {inr(plan.budget)}</div>
+        <PoweredBy className="mt-4" />
       </div>
     </aside>
   );
@@ -641,9 +670,9 @@ function DashboardTab({ plan, allocation, bookings, checklistDone, onToggleCheck
   const doneCount = checklist.filter((c) => checklistDone.has(c.id)).length;
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl space-y-5 sm:space-y-6">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-[1500px] mx-auto w-full space-y-5 sm:space-y-6">
       <div>
-        <h1 className="text-3xl font-medium text-gray-800">Namaste, {plan.name} <span role="img" aria-label="Namaste">🙏</span></h1>
+        <h1 className="text-3xl font-medium text-gray-800">Namaste,{plan.name} <span role="img" aria-label="Namaste">🙏</span></h1>
         <p className="text-sm text-gray-600 mt-1">Here's where your shaadi stands today. Tick off what you've finished, and the agent works on the rest.</p>
       </div>
 
@@ -664,7 +693,7 @@ function DashboardTab({ plan, allocation, bookings, checklistDone, onToggleCheck
 
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 sm:gap-6 items-start">
         {/* Left: what the couple controls */}
-        <div className="xl:col-span-5 space-y-5 sm:space-y-6 min-w-0">
+        <div className="order-2 xl:order-1 xl:col-span-4 space-y-5 sm:space-y-6 min-w-0">
           <div className="bg-white rounded-2xl p-4 sm:p-6" style={{ border: "1px solid #fbe8ec" }}>
             <div className="flex items-center justify-between mb-1">
               <h3 className="font-medium text-gray-700 text-sm">Shaadi Checklist</h3>
@@ -686,26 +715,6 @@ function DashboardTab({ plan, allocation, bookings, checklistDone, onToggleCheck
                   </button>
                 );
               })}
-            </div>
-          </div>
-
-          <div className="bg-white rounded-2xl p-4 sm:p-6" style={{ border: "1px solid #fbe8ec" }}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-medium text-gray-700 text-sm">Budget by Category</h3>
-              <button onClick={() => setTab("budget")} className="text-sm px-4 py-2.5 rounded-full" style={{ background: "#fdf2f4", color: "#a8213b" }}>View all →</button>
-            </div>
-            <div className="space-y-3">
-              {(Object.keys(allocation) as Category[]).slice(0, 6).map((k) => (
-                <div key={k}>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs text-gray-700">{CATEGORY_META[k].icon} {CATEGORY_META[k].label}</span>
-                    <span className="text-xs text-gray-600">{inr(spent[k])} / {inr(allocation[k])}</span>
-                  </div>
-                  <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "#fdf2f4" }}>
-                    <div className="h-full rounded-full" style={{ width: `${Math.min(100, Math.round((spent[k]/allocation[k])*100))}%`, background: `linear-gradient(to right, ${CATEGORY_META[k].color}, #c08a0c)` }} />
-                  </div>
-                </div>
-              ))}
             </div>
           </div>
 
@@ -735,8 +744,28 @@ function DashboardTab({ plan, allocation, bookings, checklistDone, onToggleCheck
         </div>
 
         {/* Right: the agent gets the wide area */}
-        <div className="xl:col-span-7 min-w-0">
+        <div className="order-1 xl:order-2 xl:col-span-8 min-w-0 space-y-5 sm:space-y-6">
           <AgentPanel plan={plan} agent={agent} setAgent={setAgent} setAllocation={setAllocation} completed={doneCategories(checklistDone)} onMessage={onMessage} />
+
+          <div className="bg-white rounded-2xl p-4 sm:p-6" style={{ border: "1px solid #fbe8ec" }}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-medium text-gray-700 text-sm">Budget by Category</h3>
+              <button onClick={() => setTab("budget")} className="text-sm px-4 py-2.5 rounded-full" style={{ background: "#fdf2f4", color: "#a8213b" }}>View all →</button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3">
+              {(Object.keys(allocation) as Category[]).map((k) => (
+                <div key={k}>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs text-gray-700">{CATEGORY_META[k].icon} {CATEGORY_META[k].label}</span>
+                    <span className="text-xs text-gray-600">{inr(spent[k])} / {inr(allocation[k])}</span>
+                  </div>
+                  <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "#fdf2f4" }}>
+                    <div className="h-full rounded-full" style={{ width: `${Math.min(100, Math.round((spent[k]/allocation[k])*100))}%`, background: `linear-gradient(to right, ${CATEGORY_META[k].color}, #c08a0c)` }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -834,8 +863,8 @@ function BudgetTab({ plan, allocation, setAllocation }: {
             {lockTotal ? "🔒 Total locked" : "🔓 Total free"}
           </button>
           <button onClick={() => setAllocation(mlAllocate(plan.budget, plan.guestCount))}
-            className="text-xs px-4 py-2 rounded-xl transition-colors"
-            style={{ color: "#a8213b", border: "1px solid #f5c6d0" }}>✦ Reset to AI</button>
+            className="text-xs px-4 py-2 rounded-xl text-white font-medium transition-all sparkle-btn hover:brightness-110 active:scale-95"
+            style={{ background: "linear-gradient(135deg, #a8213b, #881a30)", boxShadow: "0 2px 6px rgba(168,33,59,0.3)" }}>✦ Reset to AI</button>
           <button onClick={() => setCertOpen(true)}
             className="text-xs px-4 py-2 rounded-xl text-white transition-colors sparkle-btn"
             style={{ background: "linear-gradient(135deg, #c08a0c, #9a6a0a)" }}>
@@ -1108,9 +1137,9 @@ function VendorDetail({ vendor, plan, saved, booked, onToggleSave, onToggleBook,
       <div className="bg-white rounded-3xl overflow-hidden" style={{ border: "1px solid #fbe8ec" }}>
         <div className="relative">
           {vendor.image
-            ? <img src={`https://images.unsplash.com/${vendor.image}?w=1000&h=320&fit=crop&auto=format`} alt={vendor.name} onError={(e) => { e.currentTarget.style.visibility = "hidden"; }}
-                className="w-full h-44 sm:h-60 object-cover" style={{ background: "#fdf2f4" }} />
-            : <RealListingTile category={vendor.category} className="w-full h-44 sm:h-60" />}
+            ? <img src={`https://images.unsplash.com/${vendor.image}?w=1000&h=240&fit=crop&auto=format`} alt={vendor.name} onError={(e) => { e.currentTarget.style.visibility = "hidden"; }}
+                className="w-full h-28 sm:h-36 object-cover" style={{ background: "#fdf2f4" }} />
+            : <RealListingTile category={vendor.category} className="w-full h-28 sm:h-36" />}
           <div className="absolute top-4 left-4 text-sm font-medium px-3 py-1 rounded-full" style={{ background: "rgba(255,255,255,0.93)", color: "#a8213b" }}>{real ? "📍 Real listing" : vendor.tag}</div>
           <button onClick={onToggleSave} aria-label={saved ? "Remove from saved" : "Save vendor"}
             className="absolute top-4 right-4 w-11 h-11 sm:w-9 sm:h-9 rounded-full flex items-center justify-center text-lg"
@@ -1264,7 +1293,7 @@ function VendorsTab({ plan, cities, city, setCity, bookings, onToggleBook, onMes
   const cityKnown = cities.some((c) => c.name.toLowerCase() === plan.location.trim().toLowerCase());
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-6xl space-y-5 sm:space-y-6">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-[1500px] mx-auto w-full space-y-5 sm:space-y-6">
       <div className="flex items-end justify-between gap-3 sm:gap-4 flex-wrap">
         <div>
           <h1 className="text-3xl font-medium text-gray-800">Vendor Marketplace</h1>
@@ -1328,14 +1357,14 @@ function VendorsTab({ plan, cities, city, setCity, bookings, onToggleBook, onMes
       {status === "ready" && (
         <>
           <div className="text-sm text-gray-700">{filtered.length} of {vendors.length} vendors in {city}</div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4 sm:gap-5">
             {filtered.map((v) => (
               <div key={v.id} className="bg-white rounded-2xl overflow-hidden group transition-all hover:shadow-md" style={{ border: "1px solid #fbe8ec" }}>
                 <div className="relative">
                   {v.image
-                    ? <img src={`https://images.unsplash.com/${v.image}?w=400&h=200&fit=crop&auto=format`} alt={v.name} loading="lazy" onError={(e) => { e.currentTarget.style.visibility = "hidden"; }}
-                        className="w-full h-36 object-cover" style={{ background: "#fdf2f4" }} />
-                    : <RealListingTile category={v.category} className="w-full h-36" />}
+                    ? <img src={`https://images.unsplash.com/${v.image}?w=400&h=160&fit=crop&auto=format`} alt={v.name} loading="lazy" onError={(e) => { e.currentTarget.style.visibility = "hidden"; }}
+                        className="w-full h-24 object-cover" style={{ background: "#fdf2f4" }} />
+                    : <RealListingTile category={v.category} className="w-full h-24" />}
                   <div className="absolute top-2 left-2 text-xs font-medium px-2 py-1 rounded-full" style={{ background: "rgba(255,255,255,0.92)", color: "#a8213b" }}>{v.source === "osm" ? "📍 Real listing" : v.tag}</div>
                   <button onClick={() => toggle(v.id)} aria-label={saved.has(v.id) ? "Remove from saved" : "Save vendor"}
                     className="absolute top-2 right-2 w-11 h-11 sm:w-9 sm:h-9 rounded-full flex items-center justify-center text-lg transition-all"
@@ -1588,18 +1617,20 @@ function AgentPanel({ plan, agent, setAgent, setAllocation, completed, onMessage
   const [phase, setPhase] = useState<"idle" | "running" | "error">("idle");
   const [error, setError] = useState("");
   const [shown, setShown] = useState(agent.result?.events.length ?? 0);
+  const [view, setView] = useState<"summary" | "budget" | "picks" | "activity">("summary");
+  const [pickCat, setPickCat] = useState<Category | null>(null);
   const result = agent.result;
 
   // Reveal the agent's steps one by one so the couple can follow what it is doing.
   useEffect(() => {
     if (!result || shown >= result.events.length) return;
-    const t = setTimeout(() => setShown((s) => s + 1), 450);
+    const t = setTimeout(() => { setShown(shown + 1); if (shown + 1 >= result.events.length) setView("summary"); }, 450);
     return () => clearTimeout(t);
   }, [result, shown]);
   const finished = !!result && shown >= result.events.length;
 
   const run = async () => {
-    setPhase("running"); setError(""); setShown(0);
+    setPhase("running"); setError(""); setShown(0); setView("activity");
     setAgent((a) => ({ ...a, result: null, applied: false }));
     try {
       const res = await fetch(`${API_BASE}/api/agent/run`, {
@@ -1627,99 +1658,149 @@ function AgentPanel({ plan, agent, setAgent, setAllocation, completed, onMessage
   const openLabels = (Object.keys(CATEGORY_META) as Category[]).filter((k) => !completed.includes(k)).map((k) => CATEGORY_META[k].label);
   const doneLabels = completed.map((k) => CATEGORY_META[k].label);
 
+  const applyBtn = (
+    <button onClick={apply} disabled={agent.applied} className="rounded-xl px-5 py-3 sm:py-2.5 text-sm font-medium sm:shrink-0 w-full sm:w-auto"
+      style={agent.applied ? { background: "#f3faf0", color: "#2f6b1f", border: "1px solid #9bd08a" } : { ...PRIMARY_BTN, color: "#fff" }}>
+      {agent.applied ? "✓ Applied to your Budget" : "Apply to my Budget"}
+    </button>
+  );
+  const sentences = result ? result.summary.split(/(?<=[.!?])\s+/).filter(Boolean) : [];
+  const pickedCats = cats.filter((k) => result?.shortlists[k]?.length);
+  const topPicks = pickedCats.map((k) => result!.shortlists[k]![0]);
+  const realTop = topPicks.filter((p) => p.source === "osm").length;
+  const activeCat = pickCat && pickedCats.includes(pickCat) ? pickCat : pickedCats[0];
+  const maxAlloc = result ? Math.max(...cats.map((k) => result.allocation[k])) : 1;
+  const TABS: { id: typeof view; label: string }[] = [
+    { id: "summary", label: "Summary" }, { id: "budget", label: "Budget" }, { id: "picks", label: "Top picks" }, { id: "activity", label: "Activity" },
+  ];
+
   return (
-    <div className="space-y-6">
-      <div className="bg-white rounded-2xl p-4 sm:p-6 space-y-4" style={{ border: "2px solid #f5c6d0" }}>
-        <div>
-          <h2 className="text-2xl font-medium text-gray-800">Wedding Agent ✦</h2>
-          <p className="text-sm text-gray-600 mt-1">Tell the agent your goal. It plans the budget, searches vendors, checks availability and scores them for you.</p>
-        </div>
-        <label className="text-xs font-medium uppercase tracking-wider block" style={{ color: "#a8213b" }}>Your goal</label>
-        <textarea rows={3} value={agent.objective} onChange={(e) => setAgent((a) => ({ ...a, objective: e.target.value }))}
-          className="w-full rounded-xl px-4 py-3 text-sm resize-none focus:outline-none" style={INPUT_STYLE} />
-        <div className="rounded-xl p-3 text-sm text-gray-700 space-y-1" style={{ background: "#fdf8f0", border: "1px solid #fbe8ec" }}>
-          <div><span className="font-medium">Working on ({openLabels.length}):</span> {openLabels.length ? openLabels.join(", ") : "nothing: you've marked every vendor item as done"}</div>
-          {doneLabels.length > 0 && <div><span className="font-medium">Skipping, you marked these done:</span> {doneLabels.join(", ")}</div>}
-        </div>
-        <div className="flex items-center gap-4 flex-wrap">
+    <div className="space-y-5 sm:space-y-6">
+      <div className="bg-white rounded-2xl p-4 sm:p-6 space-y-3" style={{ border: "2px solid #f5c6d0" }}>
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <h2 className="text-2xl font-medium text-gray-800">Wedding Agent ✦</h2>
+            <p className="text-sm text-gray-600 mt-1">Plans your budget, finds vendors, checks availability and scores them.</p>
+          </div>
           <button onClick={run} disabled={phase === "running" || !agent.objective.trim() || openLabels.length === 0}
-            className="text-white rounded-xl px-8 py-3.5 sm:py-3 font-medium text-sm disabled:opacity-50 sparkle-btn w-full sm:w-auto" style={PRIMARY_BTN}>
+            className="text-white rounded-xl px-6 py-3 font-medium text-sm disabled:opacity-50 sparkle-btn w-full sm:w-auto" style={PRIMARY_BTN}>
             {phase === "running" ? "Agent is working…" : result ? "✦ Run again" : "✦ Run the Wedding Agent"}
           </button>
-          <span className="text-xs text-gray-600">Prototype: vendor data is a sample database, and availability is simulated.</span>
+        </div>
+        <textarea rows={2} value={agent.objective} onChange={(e) => setAgent((a) => ({ ...a, objective: e.target.value }))} aria-label="Your goal"
+          className="w-full rounded-xl px-4 py-3 text-sm resize-none focus:outline-none" style={INPUT_STYLE} />
+        <div className="flex flex-wrap items-center gap-1.5 text-xs">
+          <span className="font-medium text-gray-700 mr-1">Working on:</span>
+          {openLabels.map((l) => <span key={l} className="px-2 py-0.5 rounded-full" style={{ background: "#fdf2f4", color: "#a8213b" }}>{l}</span>)}
+          {openLabels.length === 0 && <span className="text-gray-700">nothing: you've marked every vendor item as done</span>}
+          {doneLabels.length > 0 && <>
+            <span className="font-medium text-gray-700 ml-2 mr-1">Skipping:</span>
+            {doneLabels.map((l) => <span key={l} className="px-2 py-0.5 rounded-full line-through" style={{ background: "#f1f1f1", color: "#444" }}>{l}</span>)}
+          </>}
         </div>
         {phase === "error" && <div className="text-sm font-medium" style={{ color: "#a8213b" }}>{error}</div>}
       </div>
 
       {(phase === "running" || result) && (
-        <div className="bg-white rounded-2xl p-4 sm:p-6" style={{ border: "1px solid #fbe8ec" }}>
-          <h3 className="font-medium text-gray-700 text-sm mb-4">Agent activity</h3>
-          <div className="space-y-4">
-            {phase === "running" && <div className="text-sm text-gray-600">Planning, searching and scoring…</div>}
-            {result?.events.slice(0, shown).map((e) => {
-              const s = STATUS_STYLE[e.status];
-              return (
-                <div key={e.step} className="flex gap-3">
-                  <div className="w-7 h-7 rounded-full flex items-center justify-center text-sm font-semibold shrink-0" style={{ background: s.bg, color: s.color, border: `1px solid ${s.color}` }}>{s.icon}</div>
-                  <div>
-                    <div className="text-sm font-semibold text-gray-800">{e.step}. {e.title}</div>
-                    <div className="text-sm text-gray-700 leading-relaxed">{e.detail}</div>
-                  </div>
-                </div>
-              );
-            })}
-            {result && !finished && <div className="text-sm text-gray-600">…</div>}
-          </div>
-        </div>
-      )}
-
-      {result && finished && (
-        <>
-          <div className="rounded-2xl p-4 sm:p-6" style={{ background: "linear-gradient(135deg, #fdf2f4, #fefdf0)", border: "2px solid #c08a0c" }}>
-            <div className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "#a8213b" }}>Agent summary</div>
-            <p className="text-sm text-gray-800 leading-relaxed">{result.summary}</p>
-            {!result.usedLlm && <p className="text-xs text-gray-600 mt-2">AI language model unavailable, so this uses default priorities and a templated summary.</p>}
-          </div>
-
-          <div className="bg-white rounded-2xl p-4 sm:p-6 space-y-4" style={{ border: "1px solid #fbe8ec" }}>
-            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4">
-              <div>
-                <h3 className="font-medium text-gray-800 text-lg">Proposed budget</h3>
-                <p className="text-sm text-gray-600">{inr(result.envelope.allocatable)} to allocate, plus {inr(result.envelope.reserve)} kept as a reserve.</p>
-              </div>
-              <button onClick={apply} disabled={agent.applied} className="rounded-xl px-5 py-3 sm:py-2.5 text-sm font-medium sm:shrink-0 w-full sm:w-auto"
-                style={agent.applied ? { background: "#f3faf0", color: "#2f6b1f", border: "1px solid #9bd08a" } : { ...PRIMARY_BTN, color: "#fff" }}>
-                {agent.applied ? "✓ Applied to your Budget" : "Apply to my Budget"}
+        <div className="bg-white rounded-2xl overflow-hidden" style={{ border: "1px solid #fbe8ec" }}>
+          <div role="tablist" className="flex overflow-x-auto" style={{ borderBottom: "1px solid #fbe8ec", background: "#fdf8f0" }}>
+            {TABS.map((t) => (
+              <button key={t.id} role="tab" aria-selected={view === t.id} onClick={() => setView(t.id)}
+                className="flex-1 whitespace-nowrap px-4 py-3 text-sm font-medium min-h-11"
+                style={view === t.id ? { background: "#fff", color: "#a8213b", borderBottom: "3px solid #a8213b" } : { color: "#333", borderBottom: "3px solid transparent" }}>
+                {t.label}{t.id === "activity" && result ? ` (${result.events.length})` : ""}
               </button>
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 sm:gap-3">
-              {cats.map((k) => (
-                <div key={k} className="rounded-xl p-3 min-w-0" style={{ background: "#fdf8f0", border: "1px solid #fbe8ec" }}>
-                  <div className="text-sm text-gray-700">{CATEGORY_META[k].icon} {CATEGORY_META[k].label}</div>
-                  <div className="text-lg font-semibold" style={{ color: "#a8213b" }}>{inr(result.allocation[k])}</div>
-                  <div className="text-xs text-gray-600">{Math.round((result.allocation[k] / result.envelope.total) * 100)}% of total</div>
-                </div>
-              ))}
-            </div>
-            <p className="text-xs text-gray-600">Nothing changes in your Budget until you press Apply.</p>
+            ))}
           </div>
 
-          <div className="space-y-4">
-            <h3 className="font-medium text-gray-800 text-lg">Top options by category</h3>
-            {cats.filter((k) => result.shortlists[k]).map((k) => {
-              const picks = result.shortlists[k] ?? [];
-              return (
-                <div key={k} className="bg-white rounded-2xl p-3 sm:p-5" style={{ border: "1px solid #fbe8ec" }}>
-                  <div className="flex items-center justify-between gap-2 flex-wrap mb-3 px-1 sm:px-0">
-                    <div className="text-sm font-semibold text-gray-800">{CATEGORY_META[k].icon} {CATEGORY_META[k].label}</div>
-                    <div className="text-xs text-gray-600">Allocation {inr(result.allocation[k])}</div>
-                  </div>
-                  {picks.length === 0 && <div className="text-sm text-gray-600">No available vendors left for your dates.</div>}
+          <div className="p-4 sm:p-6">
+            {view === "activity" && (
+              <div className="space-y-2">
+                {phase === "running" && <div className="text-sm text-gray-700">Planning, searching and scoring…</div>}
+                {result?.events.slice(0, shown).map((e) => {
+                  const s = STATUS_STYLE[e.status];
+                  return (
+                    <details key={e.step} className="group rounded-xl px-3 py-2" style={{ background: "#fdf8f0", border: "1px solid #fbe8ec" }}>
+                      <summary className="flex items-center gap-3 cursor-pointer list-none min-h-8">
+                        <span className="w-7 h-7 rounded-full flex items-center justify-center text-sm font-semibold shrink-0" style={{ background: s.bg, color: s.color, border: `1px solid ${s.color}` }}>{s.icon}</span>
+                        <span className="text-sm font-semibold text-gray-800 flex-1">{e.step}. {e.title}</span>
+                        <span className="text-xs text-gray-600 group-open:hidden">details</span>
+                      </summary>
+                      <p className="text-sm text-gray-700 leading-relaxed mt-2 pl-10">{e.detail}</p>
+                    </details>
+                  );
+                })}
+                {result && !finished && <div className="text-sm text-gray-600">…</div>}
+              </div>
+            )}
+
+            {result && finished && view === "summary" && (
+              <div className="space-y-5">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                  {[
+                    { label: "To allocate", value: inr(result.envelope.allocatable) },
+                    { label: "Kept as reserve", value: inr(result.envelope.reserve) },
+                    { label: "Categories with picks", value: `${pickedCats.length} of ${cats.length}` },
+                    { label: "Real listings in top picks", value: `${realTop} of ${topPicks.length}` },
+                  ].map((s) => (
+                    <div key={s.label} className="rounded-xl p-3 min-w-0" style={{ background: "linear-gradient(135deg, #fdf2f4, #fefdf0)", border: "1px solid #f5c6d0" }}>
+                      <div className="text-xs text-gray-700">{s.label}</div>
+                      <div className="text-lg font-semibold break-words" style={{ color: "#a8213b" }}>{s.value}</div>
+                    </div>
+                  ))}
+                </div>
+                <ul className="space-y-2">
+                  {sentences.map((s, i) => (
+                    <li key={i} className="flex gap-3 text-sm sm:text-base text-gray-800 leading-relaxed"><span style={{ color: "#c08a0c" }} aria-hidden="true">✦</span><span>{s}</span></li>
+                  ))}
+                </ul>
+                {!result.usedLlm && <p className="text-xs text-gray-600">AI language model unavailable, so this uses default priorities and a templated summary.</p>}
+                <div className="flex flex-col sm:flex-row sm:items-center gap-3 pt-1" style={{ borderTop: "1px solid #fbe8ec" }}>
+                  <div className="pt-3 sm:pt-4">{applyBtn}</div>
+                  <button onClick={() => setView("picks")} className="text-sm font-medium rounded-xl px-5 py-3 sm:py-2.5 sm:mt-4" style={{ color: "#a8213b", border: "1px solid #f5c6d0" }}>See top picks →</button>
+                </div>
+              </div>
+            )}
+
+            {result && finished && view === "budget" && (
+              <div className="space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <p className="text-sm text-gray-700">Proposed split of {inr(result.envelope.allocatable)}, with {inr(result.envelope.reserve)} kept as a reserve. Nothing changes until you apply it.</p>
+                  {applyBtn}
+                </div>
+                <div className="space-y-3">
+                  {cats.map((k) => (
+                    <div key={k}>
+                      <div className="flex items-baseline justify-between gap-2 mb-1">
+                        <span className="text-sm text-gray-800">{CATEGORY_META[k].icon} {CATEGORY_META[k].label}</span>
+                        <span className="text-sm text-gray-700"><span className="font-semibold" style={{ color: "#a8213b" }}>{inr(result.allocation[k])}</span> · {Math.round((result.allocation[k] / result.envelope.total) * 100)}%</span>
+                      </div>
+                      <div className="h-2.5 rounded-full overflow-hidden" style={{ background: "#fdf2f4" }}>
+                        <div className="h-full rounded-full" style={{ width: `${Math.round((result.allocation[k] / maxAlloc) * 100)}%`, background: `linear-gradient(to right, ${CATEGORY_META[k].color}, #c08a0c)` }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {result && finished && view === "picks" && (
+              <div className="space-y-4">
+                <div className="flex gap-2 overflow-x-auto -mx-1 px-1 pb-1 [&>button]:shrink-0 [&>button]:whitespace-nowrap">
+                  {pickedCats.map((k) => (
+                    <button key={k} onClick={() => setPickCat(k)} className="px-4 py-2 rounded-full text-sm font-medium"
+                      style={activeCat === k ? { background: "#a8213b", color: "#fff" } : { background: "#fff", color: "#1a1a1a", border: "1px solid #fbe8ec" }}>
+                      {CATEGORY_META[k].icon} {CATEGORY_META[k].label}
+                    </button>
+                  ))}
+                </div>
+                {activeCat && (
                   <div className="space-y-3">
-                    {picks.map((p, i) => {
+                    <div className="text-xs text-gray-700">Allocation for {CATEGORY_META[activeCat].label}: {inr(result.allocation[activeCat])}</div>
+                    {(result.shortlists[activeCat] ?? []).map((p, i) => {
                       const f = FIT_STYLE[p.fit];
                       return (
-                        <div key={p.id} className="flex flex-wrap sm:flex-nowrap items-start gap-3 rounded-xl p-3" style={{ background: i === 0 ? "#fffafb" : "transparent", border: i === 0 ? "1px solid #f5c6d0" : "1px solid transparent" }}>
+                        <div key={p.id} className="flex flex-wrap sm:flex-nowrap items-start gap-3 rounded-xl p-3" style={{ background: i === 0 ? "#fffafb" : "#fdf8f0", border: i === 0 ? "1px solid #f5c6d0" : "1px solid #fbe8ec" }}>
                           <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold shrink-0" style={{ background: "#fdf2f4", color: "#a8213b" }}>{p.score}</div>
                           <div className="flex-1 min-w-[10rem]">
                             <div className="flex flex-wrap items-center gap-2">
@@ -1737,13 +1818,15 @@ function AgentPanel({ plan, agent, setAgent, setAllocation, completed, onMessage
                         </div>
                       );
                     })}
+                    {(result.shortlists[activeCat] ?? []).length === 0 && <div className="text-sm text-gray-600">No available vendors left for your dates.</div>}
                   </div>
-                </div>
-              );
-            })}
+                )}
+              </div>
+            )}
           </div>
-        </>
+        </div>
       )}
+      <p className="text-xs text-gray-600 px-1">Prototype: sample vendors are fictional, real listings come from OpenStreetMap, and availability is simulated.</p>
     </div>
   );
 }
@@ -1805,6 +1888,7 @@ function MobileTabBar({ tab, setTab, plan, unreadCount }: { tab: Tab; setTab: (t
               <div className="text-sm text-gray-700">{plan.location} · {new Date(plan.date).toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })}</div>
               <div className="text-sm text-gray-700">{plan.guestCount} guests · {inr(plan.budget)}</div>
             </div>
+            <PoweredBy />
             <div className="text-xs font-semibold uppercase tracking-wider" style={{ color: "#a8213b" }}>Inspiration</div>
             <div className="space-y-1">
               {INSPIRATION_NAV.map((n) => (
@@ -1922,7 +2006,7 @@ export default function App() {
         {tab === "dashboard" && <DashboardTab plan={plan} allocation={allocation} bookings={bookings} checklistDone={checklistDone} onToggleCheck={toggleCheck}
           agent={agent} setAgent={setAgent} setAllocation={setAllocation} setTab={setTab} onEditPlan={setPlan} onMessage={messageVendor} />}
         {tab === "stories"   && <ComingSoonTab icon="❀" title="Success Stories" blurb="Real weddings planned on Partnered." />}
-        {tab === "blogs"     && <ComingSoonTab icon="✐" title="Blogs" blurb="Ideas, guides and advice for planning your shaadi." />}
+        {tab === "blogs"     && <BlogsTab onBrowseCity={(c) => { setMarketCity(c); setTab("vendors"); }} />}
         {tab === "budget"    && <BudgetTab plan={plan} allocation={allocation} setAllocation={setAllocation} />}
         {tab === "vendors"   && <VendorsTab plan={plan} cities={cities} city={shownCity} setCity={setMarketCity} bookings={bookings} onToggleBook={toggleBook} onMessage={messageVendor} />}
         {tab === "messages"  && <MessagesTab plan={plan} threads={threads} setThreads={setThreads} activeId={activeThreadId} setActiveId={setActiveThreadId} onNavigate={setTab} />}
