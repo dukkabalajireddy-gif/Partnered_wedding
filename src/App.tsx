@@ -3,12 +3,21 @@ import { useState, useMemo, useRef, useEffect } from "react";
 type Category = "attire" | "catering" | "decoration" | "gifts" | "logistics" | "transport" | "hotels" | "photography" | "music";
 type BudgetAllocation = Record<Category, number>;
 
-interface Vendor {
-  id: string; name: string; category: Category; location: string;
-  distance: string; rating: number; price: string; tag: string; image: string;
-}
+// In development the backend runs on :8000; in production it is served under the same site at /api.
+const API_BASE = import.meta.env.DEV ? "http://localhost:8000" : "";
 
-// A vendor the couple has booked. Spend and the checklist are computed from these.
+// A vendor as the marketplace backend describes it (GET /api/vendors).
+interface MarketVendor {
+  id: string; name: string; category: Category; city: string; area: string;
+  tier: number; priceBand: string; rating: number; reliability: number; responseHours: number;
+  premiumLook: number; distanceKm: number; capacity: number | null; partnerScore: number;
+  estCost: number; tag: string; image: string; description: string; phone: string; email: string; hours: string;
+}
+// The few fields needed to open a chat or record a booking with a vendor.
+type VendorRef = Pick<MarketVendor, "id" | "name" | "category" | "area" | "city">;
+interface CityInfo { name: string; state: string; kind: "metro" | "city" | "destination"; vendorCount: number; }
+
+// A vendor the couple has booked. Spend is computed from these.
 interface Booking { vendorId: string; vendorName: string; category: Category; amount: number; }
 
 interface ChatMessage {
@@ -18,6 +27,7 @@ interface ChatMessage {
 interface Thread {
   id: string; sender: string; role: string; avatar: string;
   unread: boolean; lastTime: string; messages: ChatMessage[];
+  draft?: string; // a message prepared for the couple to review and send
 }
 
 interface WeddingPlan {
@@ -46,51 +56,6 @@ const RITUAL_GROUPS: { title: string; items: string[] }[] = [
   { title: "Parsi", items: ["Adravu / Adarni", "Achumichu", "Madavsaro", "Lagan", "Jashan"] },
   { title: "Modern add-ons", items: ["Cocktail Night", "Bachelor / Bachelorette", "Pre-wedding Shoot", "Kirtan / Jagrata", "Welcome Dinner"] },
 ];
-
-// ─── Vendor detail (demo data derived from the vendor; replace with real data later) ───
-
-function slugify(s: string) { return s.toLowerCase().replace(/[^a-z0-9]+/g, "").slice(0, 20); }
-
-// Ballpark cost of a 3-day celebration, by category and price tier (₹ → ₹₹₹₹)
-const THREE_DAY_BASE: Record<Category, number[]> = {
-  attire:      [150000, 300000, 600000, 1200000],
-  decoration:  [200000, 400000, 800000, 1500000],
-  photography: [150000, 250000, 450000, 800000],
-  hotels:      [400000, 900000, 1800000, 3500000],
-  transport:   [100000, 200000, 400000, 700000],
-  music:       [100000, 200000, 450000, 900000],
-  gifts:       [50000, 100000, 200000, 400000],
-  logistics:   [60000, 120000, 200000, 350000],
-  catering:    [600, 1000, 1600, 2500], // per plate, multiplied by guests and 3 days below
-};
-
-function ballpark3Day(v: Vendor, guestCount: number) {
-  const tier = Math.min(3, Math.max(0, v.price.length - 1));
-  const base = v.category === "catering" ? THREE_DAY_BASE.catering[tier] * guestCount * 3 : THREE_DAY_BASE[v.category][tier];
-  const round = (n: number) => Math.round(n / 5000) * 5000;
-  return { low: round(base * 0.85), high: round(base * 1.15) };
-}
-
-function vendorContact(v: Vendor) {
-  const n = Number(v.id.replace("v", ""));
-  return {
-    phone: `+91 90000 00${String(n).padStart(3, "0")}`,
-    email: `hello@${slugify(v.name)}.example`,
-    hours: "Mon – Sat, 10 am – 7 pm",
-  };
-}
-
-const CATEGORY_BLURB: Record<Category, string> = {
-  catering: "Full-service wedding catering: multi-cuisine menus, live counters, tasting sessions and trained service staff for every function.",
-  attire: "Bridal and groom couture, custom fittings and alterations, with trousseau planning for every ritual.",
-  decoration: "Mandap, stage and venue styling with fresh florals, lighting and themed installations for each function.",
-  photography: "Candid and traditional photography with cinematic films, drone coverage and same-week previews.",
-  hotels: "Wedding venue and guest-room blocks with banquet halls, lawns and a dedicated events team.",
-  transport: "Baraat vehicles, guest airport transfers and a coordinated fleet schedule across all three days.",
-  music: "Live performances, DJs and sangeet choreography with sound and stage production included.",
-  gifts: "Curated return gifts, shagun hampers and trousseau packing with bulk-order pricing.",
-  logistics: "On-ground coordination: vendor timelines, deliveries and day-of management so you can enjoy the celebrations.",
-};
 
 function inr(n: number) { return "₹" + n.toLocaleString("en-IN"); }
 
@@ -126,94 +91,6 @@ function mlAllocate(total: number, guestCount: number): BudgetAllocation {
   (Object.keys(w) as Category[]).forEach((k) => { r[k] = Math.round((w[k] / sum) * total); });
   return r;
 }
-
-// ─── Vendors ─────────────────────────────────────────────────────────────────
-
-const VENDORS: Vendor[] = [
-  { id: "v1",  name: "Dum Pukht Banquets",         category: "catering",    location: "Connaught Place, Delhi", distance: "2.4 km",  rating: 4.9, price: "₹₹₹₹", tag: "Top Rated",       image: "photo-1555244162-803834f70033" },
-  { id: "v2",  name: "Spice Route Events",          category: "catering",    location: "Lajpat Nagar, Delhi",    distance: "4.1 km",  rating: 4.7, price: "₹₹₹",  tag: "Popular",         image: "photo-1414235077428-338989a2e8c0" },
-  { id: "v3",  name: "Pind Balluchi Catering",      category: "catering",    location: "Punjabi Bagh, Delhi",    distance: "6.0 km",  rating: 4.6, price: "₹₹₹",  tag: "Punjabi Special", image: "photo-1565299624946-b28f40a0ae38" },
-  { id: "v4",  name: "Haldiram's Banquet",          category: "catering",    location: "Chandni Chowk, Delhi",   distance: "7.5 km",  rating: 4.5, price: "₹₹",   tag: "Budget Friendly", image: "photo-1567620905732-2d1ec7ab7445" },
-  { id: "v5",  name: "Ritu Kumar Bridal Studio",    category: "attire",      location: "Khan Market, Delhi",     distance: "3.0 km",  rating: 5.0, price: "₹₹₹₹", tag: "Exclusive",       image: "photo-1519225421980-715cb0215aed" },
-  { id: "v6",  name: "Sabyasachi Flagship",         category: "attire",      location: "Mehrauli, Delhi",        distance: "8.5 km",  rating: 4.9, price: "₹₹₹₹", tag: "Designer",        image: "photo-1594938298603-c8148c4b4bde" },
-  { id: "v7",  name: "Manish Malhotra Studio",      category: "attire",      location: "DLF Emporio, Vasant Kunj",distance: "12 km",  rating: 4.8, price: "₹₹₹₹", tag: "Couture",         image: "photo-1515886657613-9f3515b0c78f" },
-  { id: "v8",  name: "Nalli Silk Sarees",           category: "attire",      location: "Connaught Place, Delhi", distance: "2.8 km",  rating: 4.7, price: "₹₹₹",  tag: "Traditional",     image: "photo-1610030469983-98e550d6193c" },
-  { id: "v9",  name: "Phool Mahal Decorators",      category: "decoration",  location: "Karol Bagh, Delhi",      distance: "1.8 km",  rating: 4.8, price: "₹₹₹",  tag: "Award Winning",   image: "photo-1507003211169-0a1dd7228f2d" },
-  { id: "v10", name: "Rani Mahal Floral Events",    category: "decoration",  location: "Pitampura, Delhi",       distance: "9.0 km",  rating: 4.6, price: "₹₹₹",  tag: "Marigold Expert", image: "photo-1464366400600-7168b8af9bc3" },
-  { id: "v11", name: "Tasveer Photography",         category: "photography", location: "Hauz Khas, Delhi",       distance: "5.2 km",  rating: 4.9, price: "₹₹₹₹", tag: "Cinematic",       image: "photo-1537633552985-df8429e8048b" },
-  { id: "v12", name: "Stories by Joseph Radhik",    category: "photography", location: "South Delhi",            distance: "6.4 km",  rating: 5.0, price: "₹₹₹₹", tag: "Celebrity Pick",  image: "photo-1606216794074-735e91aa2c92" },
-  { id: "v13", name: "Clicksunlimited Studio",      category: "photography", location: "Rohini, Delhi",          distance: "11 km",   rating: 4.5, price: "₹₹₹",  tag: "Value Pick",      image: "photo-1492691527719-9d1e07e534b4" },
-  { id: "v14", name: "The Leela Palace",            category: "hotels",      location: "Chanakyapuri, Delhi",    distance: "0.8 km",  rating: 4.8, price: "₹₹₹₹", tag: "Grand Ballroom",  image: "photo-1566073771259-6a8506099945" },
-  { id: "v15", name: "Udaivilas Oberoi",            category: "hotels",      location: "Udaipur, Rajasthan",     distance: "580 km",  rating: 5.0, price: "₹₹₹₹", tag: "Destination",     image: "photo-1520250497591-112f2f40a3f4" },
-  { id: "v16", name: "ITC Grand Bharat",            category: "hotels",      location: "Gurugram, Haryana",      distance: "28 km",   rating: 4.7, price: "₹₹₹₹", tag: "Palace Lawns",    image: "photo-1551882547-ff40c63fe2e2" },
-  { id: "v17", name: "Neemrana Fort Palace",        category: "hotels",      location: "Neemrana, Rajasthan",    distance: "122 km",  rating: 4.8, price: "₹₹₹₹", tag: "Heritage Stay",   image: "photo-1531804055935-76f44d7c3621" },
-  { id: "v18", name: "Royal Wheels Fleet",          category: "transport",   location: "IGI Airport Zone",       distance: "8.0 km",  rating: 4.5, price: "₹₹₹",  tag: "Vintage Cars",    image: "photo-1449965408869-eaa3f722e40d" },
-  { id: "v19", name: "Shahi Sawari Baraats",        category: "transport",   location: "Dwarka, Delhi",          distance: "14 km",   rating: 4.6, price: "₹₹₹",  tag: "Elephant & Horse",image: "photo-1558618666-fcd25c85cd64" },
-  { id: "v20", name: "Shankar Mahadevan Troupe",    category: "music",       location: "Gurugram, Haryana",      distance: "28 km",   rating: 4.9, price: "₹₹₹₹", tag: "Sangeet Nights",  image: "photo-1493225457124-a3eb161ffa5f" },
-  { id: "v21", name: "Bollywood DJ Nights",         category: "music",       location: "Vasant Kunj, Delhi",     distance: "10 km",   rating: 4.7, price: "₹₹₹",  tag: "DJ + Live Singer",image: "photo-1429962714451-bb934ecdc4ec" },
-  { id: "v22", name: "Mithai & Moments Gifting",    category: "gifts",       location: "Chandni Chowk, Delhi",   distance: "2.9 km",  rating: 4.6, price: "₹₹",   tag: "Handcrafted",     image: "photo-1549465220-1a8b9238cd48" },
-  { id: "v23", name: "Fabindia Wedding Gifting",    category: "gifts",       location: "Khan Market, Delhi",     distance: "3.1 km",  rating: 4.5, price: "₹₹",   tag: "Artisan Crafts",  image: "photo-1513201099705-a9746e1e201f" },
-  { id: "v24", name: "Shaadi Logistics Co.",        category: "logistics",   location: "Dwarka, Delhi",          distance: "7.3 km",  rating: 4.4, price: "₹₹",   tag: "Full Service",    image: "photo-1553413077-190dd305871c" },
-];
-
-// ─── Chat Threads ─────────────────────────────────────────────────────────────
-
-const INITIAL_THREADS: Thread[] = [
-  {
-    id: "t1", sender: "Chef Sanjeev Kumar", role: "Head Caterer · Dum Pukht Banquets",
-    avatar: "S", unread: true, lastTime: "10:32 AM",
-    messages: [
-      { id: "1", from: "me",     text: "Hi Chef Sanjeev, wanted to confirm our menu tasting session. Are we still on for Saturday?", time: "9:45 AM" },
-      { id: "2", from: "vendor", text: "Namaste! Yes absolutely. I have confirmed the slot for Saturday 11am at the banquet hall. We will cover all three menus — the Rajasthani thali, the North Indian spread, and the fusion starter section.", time: "10:10 AM" },
-      { id: "3", from: "me",     text: "Perfect. Will our family members be allowed to join the tasting?", time: "10:20 AM" },
-      { id: "4", from: "vendor", text: "Of course! Please bring up to 6 family members. We will also have our head of sweets present so you can finalise the mithai selection for the baraat and reception separately. I will send the revised proposal tonight with the per-plate pricing.", time: "10:32 AM" },
-    ],
-  },
-  {
-    id: "t2", sender: "Rahul Mishra", role: "Lead Photographer · Stories by Joseph Radhik",
-    avatar: "R", unread: true, lastTime: "Yesterday",
-    messages: [
-      { id: "1", from: "vendor", text: "Hi! I have completed the shot list based on our last call. Sharing a Google Doc link shortly. I wanted to propose a quick venue walk-through — ideally a week before to scout lighting angles during golden hour.", time: "3:15 PM" },
-      { id: "2", from: "me",     text: "That sounds great Rahul. We were also thinking of a pre-wedding shoot at Lodhi Garden. Is that something you cover?", time: "4:00 PM" },
-      { id: "3", from: "vendor", text: "Absolutely — Lodhi Garden is one of my favourite locations! The Mughal architecture in the background gives a very regal look. I suggest early morning around 6:30am for the best soft light. Shall I block a date in early November?", time: "4:30 PM" },
-    ],
-  },
-  {
-    id: "t3", sender: "Sunita Floral Arts", role: "Floral Designer · Phool Mahal",
-    avatar: "F", unread: false, lastTime: "Mon",
-    messages: [
-      { id: "1", from: "me",     text: "Sunita ji, quick update — we would like to go with the marigold + white tuberose combination for the mandap. Can you also do a genda phool entrance arch?", time: "11:00 AM" },
-      { id: "2", from: "vendor", text: "Beautiful choice! Marigold and tuberose together smell absolutely divine. The entrance arch with genda phool will look very traditional and festive. I will prepare a fresh mood board by Wednesday. The saffron and crimson mix we discussed will tie everything together beautifully. 🌸", time: "11:45 AM" },
-    ],
-  },
-  {
-    id: "t4", sender: "The Leela Palace", role: "Banquet Manager · Chanakyapuri",
-    avatar: "L", unread: false, lastTime: "Mon",
-    messages: [
-      { id: "1", from: "vendor", text: "Good afternoon. This is Vikram Singh from The Leela Palace banquet team. Your advance payment of ₹5,00,000 has been received and processed. We have confirmed the Grand Ballroom for your reception date and blocked 80 guest rooms in the Heritage Wing.", time: "2:00 PM" },
-      { id: "2", from: "me",     text: "Thank you Vikram ji. Can we also arrange for a poolside cocktail area the evening before for family arrivals?", time: "3:30 PM" },
-      { id: "3", from: "vendor", text: "Certainly! The Poolside Terrace is available that evening. I will add it to your booking with a complimentary mocktail setup for up to 40 guests as part of our premium package. A revised contract will reach you by tomorrow morning.", time: "4:15 PM" },
-    ],
-  },
-  {
-    id: "t5", sender: "Ritu Kumar Studio", role: "Stylist · Khan Market",
-    avatar: "K", unread: true, lastTime: "Sun",
-    messages: [
-      { id: "1", from: "vendor", text: "Priya ji, your bridal lehenga is ready for the second fitting. We have adjusted the blouse neckline as you requested and added the additional zardosi work on the dupatta border. Can we schedule for the 18th at 3pm?", time: "10:00 AM" },
-      { id: "2", from: "me",     text: "Yes the 18th works perfectly! Will the groom's sherwani also be ready for a joint fitting?", time: "10:30 AM" },
-      { id: "3", from: "vendor", text: "Yes! The ivory silk sherwani with the gold thread embroidery will be ready too. We can do both fittings together — usually takes about 2 hours. Please avoid heavy meals before so the fitting sits properly. 😊", time: "11:00 AM" },
-    ],
-  },
-  {
-    id: "t6", sender: "Royal Wheels Fleet", role: "Transport Manager · Dwarka",
-    avatar: "W", unread: false, lastTime: "Fri",
-    messages: [
-      { id: "1", from: "vendor", text: "Namaste! I have finalised the baraat route from Hotel Leela to the venue. The vintage Rolls Royce and two Maharaja Ambassadors will lead the procession. The dhol party and horse can join at the designated zone near the venue gate as per Delhi traffic guidelines.", time: "5:00 PM" },
-      { id: "2", from: "me",     text: "Can you also arrange airport pickup for outstation guests on the 20th? Around 30 guests are arriving from Mumbai and Bangalore.", time: "5:45 PM" },
-      { id: "3", from: "vendor", text: "Absolutely. We have a fleet of 6 Innova Crystas and 2 Tempo Travellers available. Please share the flight details and I will prepare a complete pickup schedule with driver contacts for each guest.", time: "6:20 PM" },
-    ],
-  },
-];
 
 // ─── Background art ───────────────────────────────────────────────────────────
 
@@ -423,7 +300,7 @@ function EditEventsModal({ plan, onSave, onClose }: { plan: WeddingPlan; onSave:
 
 // ─── Onboarding ───────────────────────────────────────────────────────────────
 
-function OnboardingScreen({ onComplete }: { onComplete: (p: WeddingPlan) => void }) {
+function OnboardingScreen({ cities, onComplete }: { cities: CityInfo[]; onComplete: (p: WeddingPlan) => void }) {
   const [step, setStep] = useState(0);
   const [form, setForm] = useState<Partial<WeddingPlan>>({ rituals: [], schedule: [] });
   const set = (k: keyof WeddingPlan, v: string | number) => setForm((f) => ({ ...f, [k]: v }));
@@ -502,7 +379,8 @@ function OnboardingScreen({ onComplete }: { onComplete: (p: WeddingPlan) => void
                 <div>
                   <label className="text-xs font-medium uppercase tracking-wider" style={{ color: "#a8213b" }}>City / Location</label>
                   <input className="mt-1 w-full rounded-xl px-4 py-3 text-sm focus:outline-none" style={INPUT_STYLE}
-                    placeholder="e.g. Delhi, Jaipur, Udaipur, Goa…" value={form.location ?? ""} onChange={(e) => set("location", e.target.value)} />
+                    list="city-options" placeholder="Start typing: Hyderabad, Jaipur, Udaipur, Goa…" value={form.location ?? ""} onChange={(e) => set("location", e.target.value)} />
+                  <datalist id="city-options">{cities.map((c) => <option key={c.name} value={c.name}>{c.state}</option>)}</datalist>
                 </div>
                 <RitualPicker selected={rituals} onToggle={toggleRitual} onClear={clearRituals} />
               </div>
@@ -678,10 +556,10 @@ function doneCategories(done: Set<string>): Category[] {
   return VENDOR_CHECKS.filter((c) => done.has(c.id)).map((c) => c.category as Category);
 }
 
-function DashboardTab({ plan, allocation, bookings, checklistDone, onToggleCheck, agent, setAgent, setAllocation, setTab, onEditPlan }: {
+function DashboardTab({ plan, allocation, bookings, checklistDone, onToggleCheck, agent, setAgent, setAllocation, setTab, onEditPlan, onMessage }: {
   plan: WeddingPlan; allocation: BudgetAllocation; bookings: Booking[]; checklistDone: Set<string>; onToggleCheck: (id: string) => void;
   agent: AgentState; setAgent: (fn: (a: AgentState) => AgentState) => void; setAllocation: (a: BudgetAllocation) => void;
-  setTab: (t: Tab) => void; onEditPlan: (p: WeddingPlan) => void;
+  setTab: (t: Tab) => void; onEditPlan: (p: WeddingPlan) => void; onMessage: (v: VendorRef) => void;
 }) {
   const [editing, setEditing] = useState(false);
 
@@ -792,7 +670,7 @@ function DashboardTab({ plan, allocation, bookings, checklistDone, onToggleCheck
 
         {/* Right: the agent gets the wide area */}
         <div className="col-span-7">
-          <AgentPanel plan={plan} agent={agent} setAgent={setAgent} setAllocation={setAllocation} completed={doneCategories(checklistDone)} />
+          <AgentPanel plan={plan} agent={agent} setAgent={setAgent} setAllocation={setAllocation} completed={doneCategories(checklistDone)} onMessage={onMessage} />
         </div>
       </div>
 
@@ -1078,28 +956,77 @@ function BudgetTab({ plan, allocation, setAllocation }: {
 
 // ─── Vendors Tab ──────────────────────────────────────────────────────────────
 
+// Five stars, filled in proportion to the rating (e.g. 4.6 shows four and a bit).
+function Stars({ rating }: { rating: number }) {
+  return (
+    <span className="inline-flex items-center" role="img" aria-label={`${rating} out of 5 stars`}>
+      {[1, 2, 3, 4, 5].map((i) => {
+        const fill = Math.max(0, Math.min(1, rating - (i - 1)));
+        return (
+          <span key={i} className="relative inline-block" style={{ width: "1.05em", color: "#d9cfae", WebkitTextFillColor: "#d9cfae", background: "none" }}>
+            ★
+            <span className="absolute left-0 top-0 overflow-hidden whitespace-nowrap" style={{ width: `${fill * 100}%`, color: "#d9a60f", WebkitTextFillColor: "#d9a60f", background: "none", animation: "none" }}>★</span>
+          </span>
+        );
+      })}
+    </span>
+  );
+}
+
+function ScoreBar({ label, value, shown }: { label: string; value: number; shown: string }) {
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-sm text-gray-700">{label}</span>
+        <span className="text-sm font-semibold text-gray-800">{shown}</span>
+      </div>
+      <div className="h-2 rounded-full overflow-hidden" style={{ background: "#f3e4e8" }}>
+        <div className="h-full rounded-full" style={{ width: `${Math.max(3, Math.min(100, value))}%`, background: "linear-gradient(to right, #a8213b, #d9a60f)" }} />
+      </div>
+    </div>
+  );
+}
+
+function CitySelect({ cities, value, onChange }: { cities: CityInfo[]; value: string; onChange: (c: string) => void }) {
+  const groups: [string, CityInfo["kind"]][] = [["Metros", "metro"], ["Other major cities", "city"], ["Destination wedding cities", "destination"]];
+  return (
+    <label className="inline-flex items-center gap-2 rounded-xl px-4 py-2.5 bg-white" style={{ border: "1px solid #f5c6d0" }}>
+      <span className="text-sm font-semibold" style={{ color: "#a8213b" }}>📍 City</span>
+      <select value={value} onChange={(e) => onChange(e.target.value)} aria-label="Choose a city"
+        className="text-sm font-medium bg-transparent focus:outline-none cursor-pointer" style={{ color: "#1a1a1a" }}>
+        {groups.map(([title, kind]) => (
+          <optgroup key={kind} label={title}>
+            {cities.filter((c) => c.kind === kind).map((c) => <option key={c.name} value={c.name}>{c.name} · {c.state}</option>)}
+          </optgroup>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 function VendorDetail({ vendor, plan, saved, booked, onToggleSave, onToggleBook, onBack, onMessage }: {
-  vendor: Vendor; plan: WeddingPlan; saved: boolean; booked: boolean; onToggleSave: () => void;
-  onToggleBook: (v: Vendor, amount: number) => void; onBack: () => void; onMessage: (v: Vendor) => void;
+  vendor: MarketVendor; plan: WeddingPlan; saved: boolean; booked: boolean; onToggleSave: () => void;
+  onToggleBook: (v: VendorRef, amount: number) => void; onBack: () => void; onMessage: (v: VendorRef) => void;
 }) {
-  const contact = vendorContact(vendor);
-  const cost = ballpark3Day(vendor, plan.guestCount);
-  const midpoint = Math.round((cost.low + cost.high) / 2);
+  const days = Math.max(1, plan.schedule.length);
+  const round = (n: number) => Math.round(n / 5000) * 5000;
+  const low = round(vendor.estCost * 0.9), high = round(vendor.estCost * 1.1);
   const meta = CATEGORY_META[vendor.category];
   const rows: [string, string][] = [
-    ["📍 Location", `${vendor.location} · ${vendor.distance} from you`],
-    ["📞 Phone", contact.phone],
-    ["✉️ Email", contact.email],
-    ["🕒 Available", contact.hours],
+    ["📍 Location", `${vendor.area}, ${vendor.city} · about ${vendor.distanceKm} km from the centre`],
+    ["📞 Phone", vendor.phone],
+    ["✉️ Email", vendor.email],
+    ["🕒 Available", vendor.hours],
+    ...(vendor.capacity ? [["👥 Capacity", `Up to ${vendor.capacity} guests`] as [string, string]] : []),
   ];
 
   return (
-    <div className="p-8 max-w-4xl space-y-6 relative" style={{ zIndex: 10 }}>
+    <div className="p-8 max-w-5xl space-y-6 relative" style={{ zIndex: 10 }}>
       <button onClick={onBack} className="text-sm font-medium" style={{ color: "#a8213b" }}>← Back to vendors</button>
 
       <div className="bg-white rounded-3xl overflow-hidden" style={{ border: "1px solid #fbe8ec" }}>
         <div className="relative">
-          <img src={`https://images.unsplash.com/${vendor.image}?w=900&h=320&fit=crop&auto=format`} alt={vendor.name}
+          <img src={`https://images.unsplash.com/${vendor.image}?w=1000&h=320&fit=crop&auto=format`} alt={vendor.name} onError={(e) => { e.currentTarget.style.visibility = "hidden"; }}
             className="w-full h-60 object-cover" style={{ background: "#fdf2f4" }} />
           <div className="absolute top-4 left-4 text-sm font-medium px-3 py-1 rounded-full" style={{ background: "rgba(255,255,255,0.93)", color: "#a8213b" }}>{vendor.tag}</div>
           <button onClick={onToggleSave} aria-label={saved ? "Remove from saved" : "Save vendor"}
@@ -1113,51 +1040,62 @@ function VendorDetail({ vendor, plan, saved, booked, onToggleSave, onToggleBook,
           <div className="flex items-start justify-between gap-4">
             <div>
               <h1 className="text-3xl font-medium text-gray-800">{vendor.name}</h1>
-              <div className="text-sm text-gray-600 mt-1">{meta.icon} {meta.label}</div>
+              <div className="text-sm text-gray-600 mt-1">{meta.icon} {meta.label} · {vendor.area}, {vendor.city}</div>
+              <div className="flex items-center gap-2 mt-2 text-lg"><Stars rating={vendor.rating} /><span className="text-sm font-semibold text-gray-800">{vendor.rating.toFixed(1)}</span></div>
             </div>
             <div className="text-right shrink-0">
-              <div className="text-xl font-semibold" style={{ color: "#e0b015" }}>★ {vendor.rating}</div>
-              <div className="text-sm font-semibold" style={{ color: "#c08a0c" }}>{vendor.price}</div>
+              <div className="text-xs uppercase tracking-wider text-gray-600">Partner score</div>
+              <div className="text-4xl font-semibold" style={{ color: "#a8213b" }}>{vendor.partnerScore}<span className="text-lg text-gray-600">/100</span></div>
+              <div className="text-sm font-semibold" style={{ color: "#c08a0c" }}>{vendor.priceBand}</div>
             </div>
           </div>
 
-          <p className="text-sm text-gray-600 leading-relaxed">{CATEGORY_BLURB[vendor.category]}</p>
+          <p className="text-sm text-gray-700 leading-relaxed">{vendor.description}</p>
 
-          <div className="grid grid-cols-5 gap-6">
-            <div className="col-span-3 rounded-2xl p-5 space-y-3" style={{ background: "#fdf8f0", border: "1px solid #fbe8ec" }}>
-              <h3 className="text-sm font-semibold uppercase tracking-wider" style={{ color: "#a8213b" }}>Contact & location</h3>
-              {rows.map(([label, value]) => (
-                <div key={label} className="flex gap-3">
-                  <span className="text-sm text-gray-600 w-28 shrink-0">{label}</span>
-                  <span className="text-sm text-gray-800 font-medium" style={{ overflowWrap: "anywhere" }}>{value}</span>
-                </div>
-              ))}
+          <div className="grid grid-cols-2 gap-6">
+            <div className="rounded-2xl p-5 space-y-4" style={{ background: "#fdf8f0", border: "1px solid #fbe8ec" }}>
+              <h3 className="text-sm font-semibold uppercase tracking-wider" style={{ color: "#a8213b" }}>Scorecard</h3>
+              <ScoreBar label="Customer rating" value={(vendor.rating / 5) * 100} shown={`${vendor.rating.toFixed(1)} / 5`} />
+              <ScoreBar label="Reliability" value={vendor.reliability} shown={`${vendor.reliability}%`} />
+              <ScoreBar label="Replies within" value={100 - Math.min(24, vendor.responseHours) / 24 * 100} shown={`~${vendor.responseHours} h`} />
+              <ScoreBar label="Premium look" value={vendor.premiumLook} shown={`${vendor.premiumLook}%`} />
+              <p className="text-xs text-gray-600">Partner score combines rating, reliability, response time and premium look.</p>
             </div>
 
-            <div className="col-span-2 rounded-2xl p-5" style={{ background: "linear-gradient(135deg, #fdf2f4, #fefdf0)", border: "2px solid #c08a0c" }}>
-              <h3 className="text-sm font-semibold uppercase tracking-wider" style={{ color: "#a8213b" }}>3-day event ballpark</h3>
-              <div className="text-2xl font-semibold mt-3" style={{ color: "#a8213b" }}>{inr(cost.low)}</div>
-              <div className="text-sm text-gray-600">to {inr(cost.high)}</div>
-              <p className="text-xs text-gray-600 mt-3 leading-relaxed">
-                {vendor.category === "catering" ? `Based on ${plan.guestCount} guests across three days. ` : ""}
-                An estimate for mehndi, sangeet and wedding. The final quote depends on your guest list and requirements.
-              </p>
+            <div className="space-y-6">
+              <div className="rounded-2xl p-5 space-y-3" style={{ background: "#fdf8f0", border: "1px solid #fbe8ec" }}>
+                <h3 className="text-sm font-semibold uppercase tracking-wider" style={{ color: "#a8213b" }}>Contact & location</h3>
+                {rows.map(([label, value]) => (
+                  <div key={label} className="flex gap-3">
+                    <span className="text-sm text-gray-600 w-28 shrink-0">{label}</span>
+                    <span className="text-sm text-gray-800 font-medium" style={{ overflowWrap: "anywhere" }}>{value}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="rounded-2xl p-5" style={{ background: "linear-gradient(135deg, #fdf2f4, #fefdf0)", border: "2px solid #c08a0c" }}>
+                <h3 className="text-sm font-semibold uppercase tracking-wider" style={{ color: "#a8213b" }}>{days}-day event ballpark</h3>
+                <div className="text-2xl font-semibold mt-2" style={{ color: "#a8213b" }}>{inr(low)} – {inr(high)}</div>
+                <p className="text-xs text-gray-700 mt-2 leading-relaxed">
+                  {vendor.category === "catering" ? `Based on ${plan.guestCount} guests over ${days} day${days > 1 ? "s" : ""}. ` : ""}
+                  An estimate; the final quote depends on your guest list and requirements.
+                </p>
+              </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 flex-wrap">
             <button onClick={() => onMessage(vendor)}
               className="text-white rounded-xl px-8 py-3 font-medium text-sm sparkle-btn"
               style={{ background: "linear-gradient(135deg, #a8213b, #881a30)" }}>
               💬 Message vendor
             </button>
-            <button onClick={() => onToggleBook(vendor, midpoint)} className="rounded-xl px-6 py-3 font-medium text-sm"
+            <button onClick={() => onToggleBook(vendor, vendor.estCost)} className="rounded-xl px-6 py-3 font-medium text-sm"
               style={booked ? { background: "#f3faf0", color: "#2f6b1f", border: "1px solid #9bd08a" } : { color: "#a8213b", border: "1px solid #a8213b" }}>
-              {booked ? `✓ Booked · ${inr(midpoint)} (undo)` : "Mark as booked"}
+              {booked ? `✓ Booked · ${inr(vendor.estCost)} (undo)` : "Mark as booked"}
             </button>
           </div>
           <div className="text-xs text-gray-600">
-            Demo only: contact details are placeholders, and "Mark as booked" records the estimate. Real payment and confirmation will go through Pine Labs.
+            Sample data: vendors are fictional and contact details are placeholders. "Mark as booked" records the estimate; real payment will go through Pine Labs.
           </div>
         </div>
       </div>
@@ -1165,19 +1103,47 @@ function VendorDetail({ vendor, plan, saved, booked, onToggleSave, onToggleBook,
   );
 }
 
-function VendorsTab({ plan, bookings, onToggleBook, onMessage }: {
-  plan: WeddingPlan; bookings: Booking[]; onToggleBook: (v: Vendor, amount: number) => void; onMessage: (v: Vendor) => void;
+type VendorSort = "score" | "rating" | "price" | "distance";
+
+function VendorsTab({ plan, cities, city, setCity, bookings, onToggleBook, onMessage }: {
+  plan: WeddingPlan; cities: CityInfo[]; city: string; setCity: (c: string) => void;
+  bookings: Booking[]; onToggleBook: (v: VendorRef, amount: number) => void; onMessage: (v: VendorRef) => void;
 }) {
   const [activeCategory, setActiveCategory] = useState<Category | "all">("all");
   const [search, setSearch] = useState("");
-  const [saved, setSaved] = useState<Set<string>>(new Set(["v14", "v5"]));
-  const [selected, setSelected] = useState<Vendor | null>(null);
+  const [sort, setSort] = useState<VendorSort>("score");
+  const [saved, setSaved] = useState<Set<string>>(new Set());
+  const [selected, setSelected] = useState<MarketVendor | null>(null);
+  const [vendors, setVendors] = useState<MarketVendor[]>([]);
+  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [error, setError] = useState("");
+  const days = Math.max(1, plan.schedule.length);
 
-  const filtered = VENDORS.filter((v) => {
-    const matchCat = activeCategory === "all" || v.category === activeCategory;
-    const matchSearch = !search || v.name.toLowerCase().includes(search.toLowerCase()) || v.location.toLowerCase().includes(search.toLowerCase());
-    return matchCat && matchSearch;
-  });
+  // Vendors come from the backend, one city at a time.
+  useEffect(() => {
+    if (!city) return;
+    let cancelled = false;
+    setStatus("loading"); setSelected(null);
+    fetch(`${API_BASE}/api/vendors?city=${encodeURIComponent(city)}&guests=${plan.guestCount}&days=${days}`)
+      .then(async (r) => { if (!r.ok) throw new Error(`The vendor service returned an error (${r.status}).`); return r.json(); })
+      .then((d) => { if (!cancelled) { setVendors(d.vendors); setStatus("ready"); } })
+      .catch((e) => { if (!cancelled) { setError(e instanceof TypeError ? "Could not reach the vendor service. Check that the backend is running." : (e as Error).message); setStatus("error"); } });
+    return () => { cancelled = true; };
+  }, [city, plan.guestCount, days]);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const rows = vendors.filter((v) =>
+      (activeCategory === "all" || v.category === activeCategory) &&
+      (!q || v.name.toLowerCase().includes(q) || v.area.toLowerCase().includes(q)));
+    const by: Record<VendorSort, (a: MarketVendor, b: MarketVendor) => number> = {
+      score: (a, b) => b.partnerScore - a.partnerScore,
+      rating: (a, b) => b.rating - a.rating || b.partnerScore - a.partnerScore,
+      price: (a, b) => a.estCost - b.estCost,
+      distance: (a, b) => a.distanceKm - b.distanceKm,
+    };
+    return [...rows].sort(by[sort]);
+  }, [vendors, activeCategory, search, sort]);
 
   const toggle = (id: string) => setSaved((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
@@ -1186,94 +1152,150 @@ function VendorsTab({ plan, bookings, onToggleBook, onMessage }: {
       onToggleSave={() => toggle(selected.id)} onToggleBook={onToggleBook} onBack={() => setSelected(null)} onMessage={onMessage} />;
   }
 
+  const cityKnown = cities.some((c) => c.name.toLowerCase() === plan.location.trim().toLowerCase());
+
   return (
-    <div className="p-8 max-w-5xl space-y-6">
-      <div>
-        <h1 className="text-3xl font-medium text-gray-800">Find Vendors</h1>
-        <p className="text-sm text-gray-400 mt-1">Top vendors near {plan.location} — sorted by distance. Destination options included.</p>
+    <div className="p-8 max-w-6xl space-y-6">
+      <div className="flex items-end justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-3xl font-medium text-gray-800">Vendor Marketplace</h1>
+          <p className="text-sm text-gray-600 mt-1">Browse wedding vendors city by city, compare scorecards, and message them directly.</p>
+        </div>
+        {cities.length > 0 && <CitySelect cities={cities} value={city} onChange={setCity} />}
       </div>
 
-      <div className="relative">
-        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-300">⌕</span>
-        <input className="w-full pl-8 pr-4 py-2.5 bg-white rounded-xl text-sm focus:outline-none"
-          style={{ border: "1px solid #fbe8ec" }}
-          placeholder="Search vendors or locations…" value={search} onChange={(e) => setSearch(e.target.value)} />
+      {cities.length > 0 && !cityKnown && (
+        <div className="rounded-xl p-3 text-sm text-gray-800" style={{ background: "#fffdf0", border: "1px solid #fbf0a1" }}>
+          We don't have vendors for "{plan.location}" yet, so you're seeing {city}. Pick any city above.
+        </div>
+      )}
+
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="relative flex-1 min-w-64">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">⌕</span>
+          <input className="w-full pl-8 pr-4 py-2.5 bg-white rounded-xl text-sm focus:outline-none" style={{ border: "1px solid #fbe8ec" }}
+            placeholder={`Search vendors or areas in ${city || "your city"}…`} value={search} onChange={(e) => setSearch(e.target.value)} />
+        </div>
+        <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+          Sort by
+          <select value={sort} onChange={(e) => setSort(e.target.value as VendorSort)} className="rounded-xl px-3 py-2 bg-white text-sm focus:outline-none" style={{ border: "1px solid #fbe8ec" }}>
+            <option value="score">Partner score</option>
+            <option value="rating">Rating</option>
+            <option value="price">Price: low to high</option>
+            <option value="distance">Distance</option>
+          </select>
+        </label>
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <button onClick={() => setActiveCategory("all")} className="px-4 py-1.5 rounded-full text-xs font-medium transition-all"
+        <button onClick={() => setActiveCategory("all")} className="px-4 py-1.5 rounded-full text-sm font-medium transition-all"
           style={activeCategory === "all" ? { background: "#a8213b", color: "#fff" } : { background: "#fff", color: "#1a1a1a", border: "1px solid #fbe8ec" }}>All</button>
         {(Object.keys(CATEGORY_META) as Category[]).map((k) => (
-          <button key={k} onClick={() => setActiveCategory(k)} className="px-4 py-1.5 rounded-full text-xs font-medium transition-all"
+          <button key={k} onClick={() => setActiveCategory(k)} className="px-4 py-1.5 rounded-full text-sm font-medium transition-all"
             style={activeCategory === k ? { background: "#a8213b", color: "#fff" } : { background: "#fff", color: "#1a1a1a", border: "1px solid #fbe8ec" }}>
             {CATEGORY_META[k].icon} {CATEGORY_META[k].label}
           </button>
         ))}
       </div>
 
-      <div className="grid grid-cols-3 gap-5">
-        {filtered.map((v) => (
-          <div key={v.id} className="bg-white rounded-2xl overflow-hidden group transition-all hover:shadow-md" style={{ border: "1px solid #fbe8ec" }}>
-            <div className="relative">
-              <img src={`https://images.unsplash.com/${v.image}?w=400&h=200&fit=crop&auto=format`}
-                alt={v.name} className="w-full h-36 object-cover" style={{ background: "#fdf2f4" }} />
-              <div className="absolute top-2 left-2 text-xs font-medium px-2 py-1 rounded-full"
-                style={{ background: "rgba(255,255,255,0.92)", color: "#a8213b" }}>{v.tag}</div>
-              <button onClick={() => toggle(v.id)}
-                className={`absolute top-2 right-2 w-7 h-7 rounded-full flex items-center justify-center transition-all ${saved.has(v.id) ? "" : "opacity-0 group-hover:opacity-100"}`}
-                style={saved.has(v.id) ? { background: "#a8213b", color: "#fff" } : { background: "rgba(255,255,255,0.85)", color: "#333" }}>
-                {saved.has(v.id) ? "♥" : "♡"}
-              </button>
-            </div>
-            <div className="p-4">
-              <div className="flex items-start justify-between">
-                <div>
-                  <div className="font-medium text-gray-800 text-sm">{v.name}</div>
-                  <div className="text-xs text-gray-400 mt-0.5">{v.location}</div>
-                  <div className="text-xs mt-0.5" style={{ color: "#c08a0c" }}>📍 {v.distance}</div>
+      {status === "loading" && <div className="text-sm text-gray-700 py-10 text-center">Loading vendors…</div>}
+      {status === "error" && <div className="text-sm font-medium py-10 text-center" style={{ color: "#a8213b" }}>{error}</div>}
+
+      {status === "ready" && (
+        <>
+          <div className="text-sm text-gray-700">{filtered.length} of {vendors.length} vendors in {city}</div>
+          <div className="grid grid-cols-3 gap-5">
+            {filtered.map((v) => (
+              <div key={v.id} className="bg-white rounded-2xl overflow-hidden group transition-all hover:shadow-md" style={{ border: "1px solid #fbe8ec" }}>
+                <div className="relative">
+                  <img src={`https://images.unsplash.com/${v.image}?w=400&h=200&fit=crop&auto=format`} alt={v.name} loading="lazy" onError={(e) => { e.currentTarget.style.visibility = "hidden"; }}
+                    className="w-full h-36 object-cover" style={{ background: "#fdf2f4" }} />
+                  <div className="absolute top-2 left-2 text-xs font-medium px-2 py-1 rounded-full" style={{ background: "rgba(255,255,255,0.92)", color: "#a8213b" }}>{v.tag}</div>
+                  <button onClick={() => toggle(v.id)} aria-label={saved.has(v.id) ? "Remove from saved" : "Save vendor"}
+                    className={`absolute top-2 right-2 w-7 h-7 rounded-full flex items-center justify-center transition-all ${saved.has(v.id) ? "" : "opacity-0 group-hover:opacity-100"}`}
+                    style={saved.has(v.id) ? { background: "#a8213b", color: "#fff" } : { background: "rgba(255,255,255,0.85)", color: "#333" }}>
+                    {saved.has(v.id) ? "♥" : "♡"}
+                  </button>
                 </div>
-                <div className="text-xs font-semibold" style={{ color: "#c08a0c" }}>{v.price}</div>
-              </div>
-              <div className="mt-3 flex items-center justify-between">
-                <div className="flex items-center gap-1">
-                  <span style={{ color: "#e0b015" }}>★</span>
-                  <span className="text-xs text-gray-600 font-medium">{v.rating}</span>
+                <div className="p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="font-medium text-gray-800 text-sm">{v.name}</div>
+                      <div className="text-xs text-gray-700 mt-0.5">{CATEGORY_META[v.category].icon} {CATEGORY_META[v.category].label}</div>
+                      <div className="text-xs text-gray-600 mt-0.5">{v.area} · {v.distanceKm} km</div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className="text-xs font-semibold" style={{ color: "#c08a0c" }}>{v.priceBand}</div>
+                      <div className="text-xs text-gray-700">~{inr(v.estCost)}</div>
+                    </div>
+                  </div>
+                  <div className="mt-3 flex items-center justify-between">
+                    <div className="flex items-center gap-1.5"><Stars rating={v.rating} /><span className="text-xs text-gray-800 font-medium">{v.rating.toFixed(1)}</span></div>
+                    <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ background: "#fdf2f4", color: "#a8213b" }} title="Partner score">{v.partnerScore}/100</span>
+                  </div>
+                  <div className="mt-3 flex gap-2">
+                    <button onClick={() => setSelected(v)} className="flex-1 text-xs rounded-xl py-2 transition-colors" style={{ color: "#a8213b", border: "1px solid #f5c6d0" }}>View & Contact</button>
+                    <button onClick={() => onMessage(v)} aria-label={`Message ${v.name}`} className="text-xs rounded-xl px-3 py-2 text-white" style={{ background: "linear-gradient(135deg, #a8213b, #881a30)" }}>💬</button>
+                  </div>
                 </div>
-                <span className="text-xs" style={{ color: "#9a6a0a" }}>{CATEGORY_META[v.category].icon} {CATEGORY_META[v.category].label}</span>
               </div>
-              <button onClick={() => setSelected(v)} className="mt-3 w-full text-xs rounded-xl py-2 transition-colors"
-                style={{ color: "#a8213b", border: "1px solid #f5c6d0" }}>View & Contact</button>
-            </div>
+            ))}
+            {filtered.length === 0 && <div className="col-span-3 text-center py-16 text-gray-700 text-sm">No vendors match. Try another category or search.</div>}
           </div>
-        ))}
-        {filtered.length === 0 && (
-          <div className="col-span-3 text-center py-16 text-gray-400 text-sm">No vendors found.</div>
-        )}
-      </div>
+          <p className="text-xs text-gray-600">Sample data: vendors are fictional and prices are estimates for {plan.guestCount} guests over {days} day{days > 1 ? "s" : ""}.</p>
+        </>
+      )}
     </div>
   );
 }
 
 // ─── Messages Tab ─────────────────────────────────────────────────────────────
 
-function MessagesTab({ plan, threads, setThreads, activeId, setActiveId }: {
+function MessagesTab({ plan, threads, setThreads, activeId, setActiveId, onNavigate }: {
   plan: WeddingPlan; threads: Thread[]; setThreads: (t: Thread[]) => void; activeId: string; setActiveId: (id: string) => void;
+  onNavigate: (t: Tab) => void;
 }) {
   const [draft, setDraft] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  const active = threads.find((t) => t.id === activeId)!;
+  const active = threads.find((t) => t.id === activeId) ?? threads[0];
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [activeId, active?.messages.length]);
 
+  // Opening a chat from a vendor suggestion brings a drafted enquiry along for the couple to review.
+  useEffect(() => {
+    setDraft(active?.draft ?? "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active?.id]);
+
   const send = () => {
-    if (!draft.trim()) return;
+    if (!active || !draft.trim()) return;
     const msg: ChatMessage = { id: String(Date.now()), from: "me", text: draft.trim(), time: now() };
-    setThreads(threads.map((t) => t.id === activeId ? { ...t, messages: [...t.messages, msg], lastTime: "Just now", unread: false } : t));
+    setThreads(threads.map((t) => t.id === active.id ? { ...t, messages: [...t.messages, msg], lastTime: "Just now", unread: false, draft: undefined } : t));
     setDraft("");
   };
+
+  if (!active) {
+    return (
+      <div className="p-8 max-w-3xl space-y-6">
+        <div>
+          <h1 className="text-3xl font-medium text-gray-800">Messages</h1>
+          <p className="text-sm text-gray-600 mt-1">Your conversations with vendors live here.</p>
+        </div>
+        <div className="bg-white rounded-2xl p-12 text-center" style={{ border: "1px solid #fbe8ec" }}>
+          <div className="text-4xl mb-3" aria-hidden="true">💬</div>
+          <div className="text-xl font-medium text-gray-800">No conversations yet</div>
+          <p className="text-sm text-gray-700 mt-2 max-w-md mx-auto">Message a vendor from the agent's suggestions on the Overview page, or browse the marketplace. A short enquiry is drafted for you to review before sending.</p>
+          <div className="flex gap-3 justify-center mt-6">
+            <button onClick={() => onNavigate("dashboard")} className="rounded-xl px-5 py-2.5 text-sm font-medium text-white" style={PRIMARY_BTN}>See the agent's suggestions</button>
+            <button onClick={() => onNavigate("vendors")} className="rounded-xl px-5 py-2.5 text-sm font-medium" style={{ color: "#a8213b", border: "1px solid #a8213b" }}>Browse vendors</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const selectThread = (id: string) => {
     setActiveId(id);
@@ -1293,7 +1315,7 @@ function MessagesTab({ plan, threads, setThreads, activeId, setActiveId }: {
         {threads.map((t) => (
           <button key={t.id} onClick={() => selectThread(t.id)}
             className="w-full text-left p-4 transition-colors"
-            style={{ background: activeId === t.id ? "#fdf2f4" : "transparent", borderBottom: "1px solid #fdf8f0" }}>
+            style={{ background: active.id === t.id ? "#fdf2f4" : "transparent", borderBottom: "1px solid #fdf8f0" }}>
             <div className="flex items-start gap-3">
               <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-medium shrink-0"
                 style={t.unread ? { background: "#a8213b", color: "#fff" } : { background: "#fdf2f4", color: "#a8213b" }}>
@@ -1306,7 +1328,7 @@ function MessagesTab({ plan, threads, setThreads, activeId, setActiveId }: {
                 </div>
                 <div className="text-xs text-gray-400 truncate mt-0.5">{t.role.split("·")[0].trim()}</div>
                 <div className={`text-xs truncate mt-0.5 ${t.unread ? "text-gray-700 font-medium" : "text-gray-400"}`}>
-                  {t.messages[t.messages.length - 1]?.text}
+                  {t.messages[t.messages.length - 1]?.text ?? (t.draft ? "Draft enquiry ready to review" : "No messages yet")}
                 </div>
               </div>
             </div>
@@ -1387,9 +1409,6 @@ function MessagesTab({ plan, threads, setThreads, activeId, setActiveId }: {
 
 // ─── Agent Tab ────────────────────────────────────────────────────────────────
 
-// In development the backend runs on :8000; in production it is served under the same site at /api.
-const API_BASE = import.meta.env.DEV ? "http://localhost:8000" : "";
-
 interface AgentEvent { step: number; title: string; detail: string; status: "done" | "warn" | "skipped" | "info"; }
 interface AgentPick {
   id: string; name: string; area: string; category: Category; tier: number; rating: number;
@@ -1423,9 +1442,10 @@ const FIT_STYLE: Record<AgentPick["fit"], { label: string; color: string; bg: st
   over:    { label: "Over allocation",   color: "#a8213b", bg: "#fdf2f4" },
 };
 
-function AgentPanel({ plan, agent, setAgent, setAllocation, completed }: {
+function AgentPanel({ plan, agent, setAgent, setAllocation, completed, onMessage }: {
   plan: WeddingPlan; agent: AgentState; setAgent: (fn: (a: AgentState) => AgentState) => void; setAllocation: (a: BudgetAllocation) => void;
   completed: Category[]; // categories the couple already marked done on the checklist
+  onMessage: (v: VendorRef) => void; // opens a chat with a vendor the agent suggested
 }) {
   const [phase, setPhase] = useState<"idle" | "running" | "error">("idle");
   const [error, setError] = useState("");
@@ -1572,6 +1592,9 @@ function AgentPanel({ plan, agent, setAgent, setAllocation, completed }: {
                             <div className="text-sm text-gray-700">{p.area} · est. {inr(p.estCost)}</div>
                             <div className="text-xs text-gray-600">{p.reasons.slice(0, 2).join(" · ")}</div>
                           </div>
+                          <button onClick={() => onMessage({ id: p.id, name: p.name, category: p.category, area: p.area, city: plan.location })}
+                            className="shrink-0 text-sm font-medium rounded-xl px-4 py-2 text-white" style={PRIMARY_BTN}
+                            title="Opens a chat with a drafted enquiry">💬 Message</button>
                         </div>
                       );
                     })}
@@ -1610,15 +1633,31 @@ export default function App() {
   const [plan, setPlan] = useState<WeddingPlan | null>(null);
   const [tab, setTab] = useState<Tab>("dashboard");
   const [allocation, setAllocation] = useState<BudgetAllocation>({} as BudgetAllocation);
-  const [threads, setThreads] = useState<Thread[]>(INITIAL_THREADS);
-  const [activeThreadId, setActiveThreadId] = useState("t1");
+  // Conversations only exist once the couple (or the agent's suggestions) start them.
+  const [threads, setThreads] = useState<Thread[]>([]);
+  const [activeThreadId, setActiveThreadId] = useState("");
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [agent, setAgent] = useState<AgentState>({ objective: "", result: null, applied: false });
   // Checklist is entirely the couple's call: nothing is ticked automatically.
   const [checklistDone, setChecklistDone] = useState<Set<string>>(new Set());
   const toggleCheck = (id: string) => setChecklistDone((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
-  const toggleBook = (v: Vendor, amount: number) =>
+  // The marketplace's cities come from the backend.
+  const [cities, setCities] = useState<CityInfo[]>([]);
+  const [marketCity, setMarketCity] = useState("");
+  useEffect(() => {
+    let cancelled = false;
+    // Retry a few times: a sleeping backend can take a moment to wake up.
+    const load = (attempt: number) =>
+      fetch(`${API_BASE}/api/cities`)
+        .then((r) => (r.ok ? r.json() : Promise.reject()))
+        .then((d) => { if (!cancelled) setCities(d.cities); })
+        .catch(() => { if (!cancelled && attempt < 4) setTimeout(() => load(attempt + 1), 2000); });
+    load(1);
+    return () => { cancelled = true; };
+  }, []);
+
+  const toggleBook = (v: VendorRef, amount: number) =>
     setBookings((bs) => bs.some((b) => b.vendorId === v.id)
       ? bs.filter((b) => b.vendorId !== v.id)
       : [...bs, { vendorId: v.id, vendorName: v.name, category: v.category, amount }]);
@@ -1631,23 +1670,33 @@ export default function App() {
     setAgent({ objective: defaultObjective(p), result: null, applied: false });
   };
 
-  // "Message" on a vendor page: open the existing chat with them, or start a new one, then go to Messages.
-  const messageVendor = (v: Vendor) => {
-    const existing = threads.find((t) => t.role.includes(v.name));
-    if (existing) {
-      setActiveThreadId(existing.id);
-    } else {
+  // "Message" on a vendor (marketplace or agent suggestion): open the chat with them, or start one with a
+  // drafted enquiry the couple can review and send, then go to Messages.
+  const messageVendor = (v: VendorRef) => {
+    if (!plan) return;
+    const id = `vendor-${v.id}`;
+    if (!threads.some((t) => t.id === id)) {
+      const days = plan.schedule.length ? plan.schedule : [{ date: plan.date, rituals: [] }];
+      const short = (d: string) => new Date(`${d}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+      const first = days[0].date, last = days[days.length - 1].date;
+      const when = first === last ? short(first) : `${short(first)} to ${short(last)}`;
       const thread: Thread = {
-        id: `vendor-${v.id}`, sender: v.name, role: `${CATEGORY_META[v.category].label} · ${v.location}`,
+        id, sender: v.name, role: `${CATEGORY_META[v.category].label} · ${v.area}, ${v.city}`,
         avatar: v.name[0], unread: false, lastTime: "New", messages: [],
+        draft: `Hi ${v.name} team, we're ${plan.name} and ${plan.partnerName}. We're planning a ${days.length}-day wedding in ${v.city} (${when}) for about ${plan.guestCount} guests. Are you available on those dates, and could you share a quote for ${CATEGORY_META[v.category].label.toLowerCase()}? Thank you!`,
       };
       setThreads([thread, ...threads]);
-      setActiveThreadId(thread.id);
     }
+    setActiveThreadId(id);
     setTab("messages");
   };
 
-  if (!plan) return <OnboardingScreen onComplete={handleOnboard} />;
+  if (!plan) return <OnboardingScreen cities={cities} onComplete={handleOnboard} />;
+
+  // The marketplace opens on the couple's city if we have it, otherwise the first city in the list.
+  const cityNames = cities.map((c) => c.name);
+  const planCity = cities.find((c) => c.name.toLowerCase() === plan.location.trim().toLowerCase())?.name ?? cities[0]?.name ?? "";
+  const shownCity = cityNames.includes(marketCity) ? marketCity : planCity;
 
   return (
     <div className="flex h-screen overflow-hidden relative" style={{ background: "#fdf8f0" }}>
@@ -1657,12 +1706,12 @@ export default function App() {
       </div>
       <main className="flex-1 overflow-y-auto relative" style={{ zIndex: 10 }}>
         {tab === "dashboard" && <DashboardTab plan={plan} allocation={allocation} bookings={bookings} checklistDone={checklistDone} onToggleCheck={toggleCheck}
-          agent={agent} setAgent={setAgent} setAllocation={setAllocation} setTab={setTab} onEditPlan={setPlan} />}
+          agent={agent} setAgent={setAgent} setAllocation={setAllocation} setTab={setTab} onEditPlan={setPlan} onMessage={messageVendor} />}
         {tab === "stories"   && <ComingSoonTab icon="❀" title="Success Stories" blurb="Real weddings planned on Partnered." />}
         {tab === "blogs"     && <ComingSoonTab icon="✐" title="Blogs" blurb="Ideas, guides and advice for planning your shaadi." />}
         {tab === "budget"    && <BudgetTab plan={plan} allocation={allocation} setAllocation={setAllocation} />}
-        {tab === "vendors"   && <VendorsTab plan={plan} bookings={bookings} onToggleBook={toggleBook} onMessage={messageVendor} />}
-        {tab === "messages"  && <MessagesTab plan={plan} threads={threads} setThreads={setThreads} activeId={activeThreadId} setActiveId={setActiveThreadId} />}
+        {tab === "vendors"   && <VendorsTab plan={plan} cities={cities} city={shownCity} setCity={setMarketCity} bookings={bookings} onToggleBook={toggleBook} onMessage={messageVendor} />}
+        {tab === "messages"  && <MessagesTab plan={plan} threads={threads} setThreads={setThreads} activeId={activeThreadId} setActiveId={setActiveThreadId} onNavigate={setTab} />}
       </main>
     </div>
   );

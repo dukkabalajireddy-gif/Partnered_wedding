@@ -10,6 +10,7 @@ load_dotenv()
 
 from agent import router as agent_router  # noqa: E402  (after load_dotenv so env vars are set)
 from llm import get_client  # noqa: E402
+from marketplace import router as marketplace_router  # noqa: E402
 
 app = FastAPI(title="Partner backend")
 app.add_middleware(
@@ -21,8 +22,9 @@ app.add_middleware(
 )
 
 # The agent answers both with and without the "/api" prefix (see health/chat below).
-app.include_router(agent_router)
-app.include_router(agent_router, prefix="/api")
+for _router in (agent_router, marketplace_router):
+    app.include_router(_router)
+    app.include_router(_router, prefix="/api")
 
 MODEL = os.getenv("LLM_MODEL", "")
 
