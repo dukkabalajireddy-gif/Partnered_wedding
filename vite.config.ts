@@ -84,7 +84,10 @@ function figmaSiteConfiguration(config: FigmaSiteConfiguration): Plugin {
   const title = config.title ?? "Figma Make App"
   const description = config.description ?? ''
   const favicon = config.icons?.icon ?? ''
-  const socialImage = config.openGraph?.image ?? ''
+  // Link-preview crawlers (WhatsApp, Slack...) need a full URL, so on Vercel prefix the site's own address.
+  const siteUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : ''
+  const rawSocialImage = config.openGraph?.image ?? ''
+  const socialImage = rawSocialImage.startsWith('/') ? `${siteUrl}${rawSocialImage}` : rawSocialImage
   const language = sanitizeHtmlValue(config.language) || 'en'
   const googleAnalyticsId = sanitizeHtmlValue(config.analytics?.googleAnalyticsId)
   const headStart = config.customScripts?.headStart ?? ''
@@ -131,7 +134,13 @@ function figmaSiteConfiguration(config: FigmaSiteConfiguration): Plugin {
           tags.push({ tag: 'meta', attrs: { name: 'robots', content: 'noindex, nofollow' }, injectTo: 'head' })
         }
         if (favicon) {
-          tags.push({ tag: 'link', attrs: { rel: 'icon', href: favicon }, injectTo: 'head' })
+          tags.push(
+            { tag: 'link', attrs: { rel: 'icon', type: 'image/svg+xml', href: favicon }, injectTo: 'head' },
+            { tag: 'link', attrs: { rel: 'apple-touch-icon', href: '/apple-touch-icon.png' }, injectTo: 'head' },
+            { tag: 'meta', attrs: { name: 'theme-color', content: '#a8213b' }, injectTo: 'head' },
+            { tag: 'meta', attrs: { property: 'og:type', content: 'website' }, injectTo: 'head' },
+            { tag: 'meta', attrs: { property: 'og:site_name', content: 'Partnered' }, injectTo: 'head' },
+          )
         }
         if (title) {
           tags.push({ tag: 'meta', attrs: { property: 'og:title', content: title }, injectTo: 'head' })

@@ -1,7 +1,14 @@
 {
-  "description": "Streamline wedding planning with a budget management tool and vendor communication platform, connecting brides and grooms to local services for a seamless experience.",
+  "title": "Partnered - Indian Wedding Planner",
+  "description": "Plan your shaadi your way: set a budget, find vendors city by city, and let an AI wedding agent shortlist them for you.",
   "robots": {
     "index": false
+  },
+  "icons": {
+    "icon": "/favicon.svg"
+  },
+  "openGraph": {
+    "image": "/og-image.png"
   },
   "accessibility": {
     "addBypassLinks": false,
