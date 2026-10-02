@@ -4,26 +4,27 @@ import os
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from openai import OpenAI
 from pydantic import BaseModel
 
 load_dotenv()
+
+from agent import router as agent_router  # noqa: E402  (after load_dotenv so env vars are set)
+from llm import get_client  # noqa: E402
 
 app = FastAPI(title="Partner backend")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[os.getenv("FRONTEND_ORIGIN", "http://localhost:8443")],
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",  # local development
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Grok (xAI), Groq and Gemini all offer OpenAI-compatible APIs, so one client works for any
-# of them: just change LLM_BASE_URL / LLM_MODEL / LLM_API_KEY in .env.
+# The agent answers both with and without the "/api" prefix (see health/chat below).
+app.include_router(agent_router)
+app.include_router(agent_router, prefix="/api")
+
 MODEL = os.getenv("LLM_MODEL", "")
-
-
-def get_client() -> OpenAI:
-    return OpenAI(api_key=os.getenv("LLM_API_KEY"), base_url=os.getenv("LLM_BASE_URL"))
 
 SYSTEM_PROMPT = (
     "You are Partner, a helpful Indian wedding planning assistant. "

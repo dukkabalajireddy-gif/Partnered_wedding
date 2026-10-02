@@ -570,9 +570,10 @@ function OnboardingScreen({ onComplete }: { onComplete: (p: WeddingPlan) => void
 
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
 
-type Tab = "dashboard" | "budget" | "vendors" | "messages";
+type Tab = "dashboard" | "agent" | "budget" | "vendors" | "messages";
 const NAV: { id: Tab; label: string; icon: string }[] = [
   { id: "dashboard", label: "Overview",  icon: "◈" },
+  { id: "agent",     label: "Agent",     icon: "✦" },
   { id: "budget",    label: "Budget",    icon: "◎" },
   { id: "vendors",   label: "Vendors",   icon: "◉" },
   { id: "messages",  label: "Messages",  icon: "◐" },
@@ -1357,6 +1358,200 @@ function MessagesTab({ plan, threads, setThreads, activeId, setActiveId }: {
   );
 }
 
+// ─── Agent Tab ────────────────────────────────────────────────────────────────
+
+// In development the backend runs on :8000; in production it is served under the same site at /api.
+const API_BASE = import.meta.env.DEV ? "http://localhost:8000" : "";
+
+interface AgentEvent { step: number; title: string; detail: string; status: "done" | "warn" | "skipped" | "info"; }
+interface AgentPick {
+  id: string; name: string; area: string; category: Category; tier: number; rating: number;
+  estCost: number; fit: "within" | "stretch" | "over"; score: number; reasons: string[];
+}
+interface AgentResult {
+  events: AgentEvent[];
+  envelope: { total: number; reserve: number; allocatable: number; perGuest: number; level: string; message: string };
+  allocation: BudgetAllocation;
+  shortlists: Partial<Record<Category, AgentPick[]>>;
+  summary: string;
+  usedLlm: boolean;
+  totals?: { sumOfTopPicks: number; allocatable: number };
+}
+interface AgentState { objective: string; result: AgentResult | null; applied: boolean; }
+
+function defaultObjective(plan: WeddingPlan) {
+  const when = new Date(plan.date).toLocaleDateString("en-IN", { month: "long", year: "numeric" });
+  return `I have ${inr(plan.budget)}. ${plan.guestCount} guests. ${plan.location}. Wedding in ${when}. I want a premium-looking wedding but don't want to exceed my budget.`;
+}
+
+const STATUS_STYLE: Record<AgentEvent["status"], { icon: string; color: string; bg: string }> = {
+  done:    { icon: "✓", color: "#2f6b1f", bg: "#f3faf0" },
+  warn:    { icon: "!", color: "#a8213b", bg: "#fdf2f4" },
+  skipped: { icon: "–", color: "#444444", bg: "#f1f1f1" },
+  info:    { icon: "i", color: "#7a5206", bg: "#fffdf0" },
+};
+const FIT_STYLE: Record<AgentPick["fit"], { label: string; color: string; bg: string }> = {
+  within:  { label: "Within allocation", color: "#2f6b1f", bg: "#f3faf0" },
+  stretch: { label: "Stretch",           color: "#7a5206", bg: "#fffdf0" },
+  over:    { label: "Over allocation",   color: "#a8213b", bg: "#fdf2f4" },
+};
+
+function AgentTab({ plan, agent, setAgent, setAllocation }: {
+  plan: WeddingPlan; agent: AgentState; setAgent: (fn: (a: AgentState) => AgentState) => void; setAllocation: (a: BudgetAllocation) => void;
+}) {
+  const [phase, setPhase] = useState<"idle" | "running" | "error">("idle");
+  const [error, setError] = useState("");
+  const [shown, setShown] = useState(agent.result?.events.length ?? 0);
+  const result = agent.result;
+
+  // Reveal the agent's steps one by one so the couple can follow what it is doing.
+  useEffect(() => {
+    if (!result || shown >= result.events.length) return;
+    const t = setTimeout(() => setShown((s) => s + 1), 450);
+    return () => clearTimeout(t);
+  }, [result, shown]);
+  const finished = !!result && shown >= result.events.length;
+
+  const run = async () => {
+    setPhase("running"); setError(""); setShown(0);
+    setAgent((a) => ({ ...a, result: null, applied: false }));
+    try {
+      const res = await fetch(`${API_BASE}/api/agent/run`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ plan, objective: agent.objective }),
+      });
+      if (!res.ok) throw new Error(`The agent returned an error (${res.status}).`);
+      const data: AgentResult = await res.json();
+      setAgent((a) => ({ ...a, result: data }));
+      setPhase("idle");
+    } catch (e) {
+      setError(e instanceof TypeError ? "Could not reach the agent. Check that the backend is running." : (e as Error).message);
+      setPhase("error");
+    }
+  };
+
+  const apply = () => {
+    if (!result) return;
+    setAllocation(result.allocation);
+    setAgent((a) => ({ ...a, applied: true }));
+  };
+
+  const cats = result ? (Object.keys(result.allocation) as Category[]).sort((a, b) => result.allocation[b] - result.allocation[a]) : [];
+
+  return (
+    <div className="p-8 max-w-4xl space-y-6">
+      <div>
+        <h1 className="text-3xl font-medium text-gray-800">Wedding Agent ✦</h1>
+        <p className="text-sm text-gray-600 mt-1">Tell the agent your goal. It plans the budget, searches vendors, checks availability and scores them for you.</p>
+      </div>
+
+      <div className="bg-white rounded-2xl p-6 space-y-4" style={{ border: "1px solid #fbe8ec" }}>
+        <label className="text-xs font-medium uppercase tracking-wider" style={{ color: "#a8213b" }}>Your goal</label>
+        <textarea rows={3} value={agent.objective} onChange={(e) => setAgent((a) => ({ ...a, objective: e.target.value }))}
+          className="w-full rounded-xl px-4 py-3 text-sm resize-none focus:outline-none" style={INPUT_STYLE} />
+        <div className="flex items-center gap-4">
+          <button onClick={run} disabled={phase === "running" || !agent.objective.trim()}
+            className="text-white rounded-xl px-8 py-3 font-medium text-sm disabled:opacity-50 sparkle-btn" style={PRIMARY_BTN}>
+            {phase === "running" ? "Agent is working…" : result ? "✦ Run again" : "✦ Run the Wedding Agent"}
+          </button>
+          <span className="text-xs text-gray-600">Prototype: vendor data is a sample database, and availability is simulated.</span>
+        </div>
+        {phase === "error" && <div className="text-sm font-medium" style={{ color: "#a8213b" }}>{error}</div>}
+      </div>
+
+      {(phase === "running" || result) && (
+        <div className="bg-white rounded-2xl p-6" style={{ border: "1px solid #fbe8ec" }}>
+          <h3 className="font-medium text-gray-700 text-sm mb-4">Agent activity</h3>
+          <div className="space-y-4">
+            {phase === "running" && <div className="text-sm text-gray-600">Planning, searching and scoring…</div>}
+            {result?.events.slice(0, shown).map((e) => {
+              const s = STATUS_STYLE[e.status];
+              return (
+                <div key={e.step} className="flex gap-3">
+                  <div className="w-7 h-7 rounded-full flex items-center justify-center text-sm font-semibold shrink-0" style={{ background: s.bg, color: s.color, border: `1px solid ${s.color}` }}>{s.icon}</div>
+                  <div>
+                    <div className="text-sm font-semibold text-gray-800">{e.step}. {e.title}</div>
+                    <div className="text-sm text-gray-700 leading-relaxed">{e.detail}</div>
+                  </div>
+                </div>
+              );
+            })}
+            {result && !finished && <div className="text-sm text-gray-600">…</div>}
+          </div>
+        </div>
+      )}
+
+      {result && finished && (
+        <>
+          <div className="rounded-2xl p-6" style={{ background: "linear-gradient(135deg, #fdf2f4, #fefdf0)", border: "2px solid #c08a0c" }}>
+            <div className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "#a8213b" }}>Agent summary</div>
+            <p className="text-sm text-gray-800 leading-relaxed">{result.summary}</p>
+            {!result.usedLlm && <p className="text-xs text-gray-600 mt-2">AI language model unavailable, so this uses default priorities and a templated summary.</p>}
+          </div>
+
+          <div className="bg-white rounded-2xl p-6 space-y-4" style={{ border: "1px solid #fbe8ec" }}>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="font-medium text-gray-800 text-lg">Proposed budget</h3>
+                <p className="text-sm text-gray-600">{inr(result.envelope.allocatable)} to allocate, plus {inr(result.envelope.reserve)} kept as a reserve.</p>
+              </div>
+              <button onClick={apply} disabled={agent.applied} className="rounded-xl px-5 py-2.5 text-sm font-medium shrink-0"
+                style={agent.applied ? { background: "#f3faf0", color: "#2f6b1f", border: "1px solid #9bd08a" } : { ...PRIMARY_BTN, color: "#fff" }}>
+                {agent.applied ? "✓ Applied to your Budget" : "Apply to my Budget"}
+              </button>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              {cats.map((k) => (
+                <div key={k} className="rounded-xl p-3" style={{ background: "#fdf8f0", border: "1px solid #fbe8ec" }}>
+                  <div className="text-sm text-gray-700">{CATEGORY_META[k].icon} {CATEGORY_META[k].label}</div>
+                  <div className="text-lg font-semibold" style={{ color: "#a8213b" }}>{inr(result.allocation[k])}</div>
+                  <div className="text-xs text-gray-600">{Math.round((result.allocation[k] / result.envelope.total) * 100)}% of total</div>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-gray-600">Nothing changes in your Budget until you press Apply.</p>
+          </div>
+
+          <div className="space-y-4">
+            <h3 className="font-medium text-gray-800 text-lg">Top options by category</h3>
+            {cats.filter((k) => result.shortlists[k]).map((k) => {
+              const picks = result.shortlists[k] ?? [];
+              return (
+                <div key={k} className="bg-white rounded-2xl p-5" style={{ border: "1px solid #fbe8ec" }}>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="text-sm font-semibold text-gray-800">{CATEGORY_META[k].icon} {CATEGORY_META[k].label}</div>
+                    <div className="text-xs text-gray-600">Allocation {inr(result.allocation[k])}</div>
+                  </div>
+                  {picks.length === 0 && <div className="text-sm text-gray-600">No available vendors left for your dates.</div>}
+                  <div className="space-y-3">
+                    {picks.map((p, i) => {
+                      const f = FIT_STYLE[p.fit];
+                      return (
+                        <div key={p.id} className="flex items-start gap-3 rounded-xl p-3" style={{ background: i === 0 ? "#fffafb" : "transparent", border: i === 0 ? "1px solid #f5c6d0" : "1px solid transparent" }}>
+                          <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold shrink-0" style={{ background: "#fdf2f4", color: "#a8213b" }}>{p.score}</div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-sm font-semibold text-gray-800">{p.name}</span>
+                              {i === 0 && <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: "#a8213b", color: "#fff" }}>Top pick</span>}
+                              <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: f.bg, color: f.color, border: `1px solid ${f.color}` }}>{f.label}</span>
+                            </div>
+                            <div className="text-sm text-gray-700">{p.area} · est. {inr(p.estCost)}</div>
+                            <div className="text-xs text-gray-600">{p.reasons.slice(0, 2).join(" · ")}</div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ─── App ──────────────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -1366,6 +1561,7 @@ export default function App() {
   const [threads, setThreads] = useState<Thread[]>(INITIAL_THREADS);
   const [activeThreadId, setActiveThreadId] = useState("t1");
   const [bookings, setBookings] = useState<Booking[]>([]);
+  const [agent, setAgent] = useState<AgentState>({ objective: "", result: null, applied: false });
 
   const toggleBook = (v: Vendor, amount: number) =>
     setBookings((bs) => bs.some((b) => b.vendorId === v.id)
@@ -1377,6 +1573,7 @@ export default function App() {
   const handleOnboard = (p: WeddingPlan) => {
     setPlan(p);
     setAllocation(mlAllocate(p.budget, p.guestCount));
+    setAgent({ objective: defaultObjective(p), result: null, applied: false });
   };
 
   // "Message" on a vendor page: open the existing chat with them, or start a new one, then go to Messages.
@@ -1405,6 +1602,7 @@ export default function App() {
       </div>
       <main className="flex-1 overflow-y-auto relative" style={{ zIndex: 10 }}>
         {tab === "dashboard" && <DashboardTab plan={plan} allocation={allocation} bookings={bookings} setTab={setTab} onEditPlan={setPlan} />}
+        {tab === "agent"     && <AgentTab plan={plan} agent={agent} setAgent={setAgent} setAllocation={setAllocation} />}
         {tab === "budget"    && <BudgetTab plan={plan} allocation={allocation} setAllocation={setAllocation} />}
         {tab === "vendors"   && <VendorsTab plan={plan} bookings={bookings} onToggleBook={toggleBook} onMessage={messageVendor} />}
         {tab === "messages"  && <MessagesTab plan={plan} threads={threads} setThreads={setThreads} activeId={activeThreadId} setActiveId={setActiveThreadId} />}
