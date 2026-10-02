@@ -47,6 +47,7 @@ class PlanIn(BaseModel):
 class RunIn(BaseModel):
     plan: PlanIn
     objective: str = ""
+    completed: list[str] = []  # categories the couple has already finished themselves: the agent leaves them alone
 
 
 def inr(n: float) -> str:
@@ -211,13 +212,25 @@ def run_agent(req: RunIn):
         "done", {"allocation": alloc, "preferences": prefs})
 
     # 3. Search the vendor database
-    pool = vendors_in_city(plan.location)
-    if not pool:
-        log(3, "Search your vendor database", f"No vendors are listed for {plan.location} yet, so nothing can be shortlisted.", "warn")
+    skipped = [c for c in LABELS if c in req.completed]  # the couple already did these: do not touch them
+    everything = vendors_in_city(plan.location)
+    pool = [v for v in everything if v["category"] not in skipped]
+
+    def early_exit(detail: str, summary: str):
+        log(3, "Search your vendor database", detail, "warn")
         return {"events": events, "envelope": env, "allocation": alloc, "shortlists": {}, "preferences": prefs,
-                "summary": f"I have no vendors for {plan.location} in the database yet, so I could only set up the budget envelope and allocation.", "usedLlm": used_llm_prefs}
+                "summary": summary, "usedLlm": used_llm_prefs}
+
+    if not everything:
+        return early_exit(f"No vendors are listed for {plan.location} yet, so nothing can be shortlisted.",
+                          f"I have no vendors for {plan.location} in the database yet, so I could only set up the budget envelope and allocation.")
+    if not pool:
+        return early_exit("Every category with vendors is already marked done on your checklist.",
+                          "You've marked every vendor item as done, so there is nothing left for me to search. Untick an item if you want me to work on it.")
     cats = sorted({v["category"] for v in pool}, key=lambda c: -alloc.get(c, 0))
-    log(3, "Search your vendor database", f"Found {len(pool)} vendors in {plan.location} across {len(cats)} categories.")
+    log(3, "Search your vendor database",
+        f"Found {len(pool)} vendors in {plan.location} across {len(cats)} open categories."
+        + (f" Skipping {', '.join(LABELS[c] for c in skipped)}: you marked {'it' if len(skipped) == 1 else 'them'} done." if skipped else ""))
 
     # 4. External sources
     log(4, "Search external sources",
@@ -300,6 +313,7 @@ def run_agent(req: RunIn):
         "topPicks": {LABELS[c]: {"name": shortlists[c][0]["name"], "estCost": inr(shortlists[c][0]["estCost"]), "fit": shortlists[c][0]["fit"]} for c in cats if shortlists.get(c)},
         "sumOfTopPicks": inr(top_costs), "topPicksFitBudget": top_costs <= env["allocatable"],
         "categoriesOverAllocation": stretch,
+        "categoriesTheCoupleAlreadyFinishedAndIWillNotTouch": [LABELS[c] for c in skipped],
         "categoriesWhereEveryVendorIsBookedOnYourDates": [LABELS[c] for c in cats if not shortlists.get(c)],
     }
     summary, used_llm_summary = write_summary(facts)

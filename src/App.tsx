@@ -570,13 +570,16 @@ function OnboardingScreen({ onComplete }: { onComplete: (p: WeddingPlan) => void
 
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
 
-type Tab = "dashboard" | "agent" | "budget" | "vendors" | "messages";
+type Tab = "dashboard" | "budget" | "vendors" | "messages" | "stories" | "blogs";
 const NAV: { id: Tab; label: string; icon: string }[] = [
   { id: "dashboard", label: "Overview",  icon: "◈" },
-  { id: "agent",     label: "Agent",     icon: "✦" },
   { id: "budget",    label: "Budget",    icon: "◎" },
   { id: "vendors",   label: "Vendors",   icon: "◉" },
   { id: "messages",  label: "Messages",  icon: "◐" },
+];
+const INSPIRATION_NAV: { id: Tab; label: string; icon: string }[] = [
+  { id: "stories", label: "Success Stories", icon: "❀" },
+  { id: "blogs",   label: "Blogs",           icon: "✐" },
 ];
 
 function Sidebar({ tab, setTab, plan, unreadCount }: { tab: Tab; setTab: (t: Tab) => void; plan: WeddingPlan; unreadCount: number }) {
@@ -622,6 +625,16 @@ function Sidebar({ tab, setTab, plan, unreadCount }: { tab: Tab; setTab: (t: Tab
             )}
           </button>
         ))}
+
+        <div className="pt-4 mt-3 px-3 text-xs font-semibold uppercase tracking-wider" style={{ color: "#a8213b", borderTop: "1px solid #fdf2f4" }}>Inspiration</div>
+        {INSPIRATION_NAV.map((n) => (
+          <button key={n.id} onClick={() => setTab(n.id)}
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all"
+            style={tab === n.id ? { background: "linear-gradient(135deg, #a8213b, #881a30)", color: "#fff" } : { color: "#1a1a1a" }}>
+            <span className="text-base leading-none">{n.icon}</span>
+            {n.label}
+          </button>
+        ))}
       </nav>
 
       <div className="px-4 py-4" style={{ borderTop: "1px solid #fdf2f4" }}>
@@ -634,23 +647,43 @@ function Sidebar({ tab, setTab, plan, unreadCount }: { tab: Tab; setTab: (t: Tab
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 
-// What counts as "done" comes from real bookings, not hardcoded values.
-const BOOKING_CHECKS: { category: Category; text: string }[] = [
-  { category: "hotels",      text: "Venue booked" },
-  { category: "catering",    text: "Catering booked" },
-  { category: "photography", text: "Photographer booked" },
-  { category: "decoration",  text: "Decor & florals booked" },
-  { category: "attire",      text: "Bridal & groom attire booked" },
-  { category: "transport",   text: "Baraat transport arranged" },
+// The couple ticks these off themselves. Items tied to a vendor category are handed to the
+// Wedding Agent only while they are still open: anything marked done is left alone.
+interface CheckItem { id: string; text: string; category?: Category; }
+const VENDOR_CHECKS: CheckItem[] = [
+  { id: "venue",       text: "Venue booked",                    category: "hotels" },
+  { id: "catering",    text: "Catering booked",                 category: "catering" },
+  { id: "photography", text: "Photographer booked",             category: "photography" },
+  { id: "decoration",  text: "Decor & florals booked",          category: "decoration" },
+  { id: "attire",      text: "Bridal & groom attire sorted",    category: "attire" },
+  { id: "music",       text: "Music & sangeet booked",          category: "music" },
+  { id: "transport",   text: "Baraat transport arranged",       category: "transport" },
+  { id: "gifts",       text: "Gifts & shagun planned",          category: "gifts" },
+  { id: "logistics",   text: "Wedding-day logistics arranged",  category: "logistics" },
 ];
-const MANUAL_CHECKS = ["Wedding invitations (shaadi cards) sent", "Honeymoon booked"];
+const OTHER_CHECKS: CheckItem[] = [
+  { id: "invites",   text: "Wedding invitations (shaadi cards) sent" },
+  { id: "honeymoon", text: "Honeymoon booked" },
+];
 
-function DashboardTab({ plan, allocation, bookings, setTab, onEditPlan }: {
-  plan: WeddingPlan; allocation: BudgetAllocation; bookings: Booking[]; setTab: (t: Tab) => void; onEditPlan: (p: WeddingPlan) => void;
+function checklistFor(plan: WeddingPlan): CheckItem[] {
+  return [
+    ...VENDOR_CHECKS,
+    ...(plan.creativeDirector ? [{ id: "director", text: "Creative director finalised" }] : []),
+    ...OTHER_CHECKS,
+  ];
+}
+// Vendor categories the couple has marked as done: the agent skips these.
+function doneCategories(done: Set<string>): Category[] {
+  return VENDOR_CHECKS.filter((c) => done.has(c.id)).map((c) => c.category as Category);
+}
+
+function DashboardTab({ plan, allocation, bookings, checklistDone, onToggleCheck, agent, setAgent, setAllocation, setTab, onEditPlan }: {
+  plan: WeddingPlan; allocation: BudgetAllocation; bookings: Booking[]; checklistDone: Set<string>; onToggleCheck: (id: string) => void;
+  agent: AgentState; setAgent: (fn: (a: AgentState) => AgentState) => void; setAllocation: (a: BudgetAllocation) => void;
+  setTab: (t: Tab) => void; onEditPlan: (p: WeddingPlan) => void;
 }) {
-  const [manualDone, setManualDone] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState(false);
-  const manualChecks = plan.creativeDirector ? ["Creative director finalised", ...MANUAL_CHECKS] : MANUAL_CHECKS;
 
   const spent = useMemo(() => {
     const r = {} as BudgetAllocation;
@@ -660,18 +693,14 @@ function DashboardTab({ plan, allocation, bookings, setTab, onEditPlan }: {
   }, [allocation, bookings]);
   const totalSpent = bookings.reduce((a, b) => a + b.amount, 0);
 
-  const checklist = [
-    ...BOOKING_CHECKS.map((c) => ({ done: bookings.some((b) => b.category === c.category), text: c.text, manual: false })),
-    ...manualChecks.map((t) => ({ done: manualDone.has(t), text: t, manual: true })),
-  ];
-  const toggleManual = (t: string) => setManualDone((s) => { const n = new Set(s); n.has(t) ? n.delete(t) : n.add(t); return n; });
-  const doneCount = checklist.filter((c) => c.done).length;
+  const checklist = checklistFor(plan);
+  const doneCount = checklist.filter((c) => checklistDone.has(c.id)).length;
 
   return (
-    <div className="p-8 max-w-5xl space-y-8">
+    <div className="p-8 max-w-7xl space-y-6">
       <div>
         <h1 className="text-3xl font-medium text-gray-800">Namaste, {plan.name} <span role="img" aria-label="Namaste">🙏</span></h1>
-        <p className="text-sm text-gray-400 mt-1">Here's where your shaadi stands today.</p>
+        <p className="text-sm text-gray-600 mt-1">Here's where your shaadi stands today. Tick off what you've finished, and the agent works on the rest.</p>
       </div>
 
       <div className="grid grid-cols-4 gap-4">
@@ -682,90 +711,88 @@ function DashboardTab({ plan, allocation, bookings, setTab, onEditPlan }: {
           { label: "Days Left",     value: String(Math.max(0, Math.ceil((new Date(plan.date).getTime() - Date.now()) / 86400000))), sub: "until the big day", color: "#c93a52" },
         ].map((s) => (
           <div key={s.label} className="bg-white rounded-2xl p-5" style={{ border: "1px solid #fbe8ec" }}>
-            <div className="text-xs text-gray-400 mb-1">{s.label}</div>
+            <div className="text-xs text-gray-600 mb-1">{s.label}</div>
             <div className="text-xl font-semibold" style={{ color: s.color }}>{s.value}</div>
-            <div className="text-xs text-gray-400 mt-1">{s.sub}</div>
+            <div className="text-xs text-gray-600 mt-1">{s.sub}</div>
           </div>
         ))}
       </div>
 
-      <div className="grid grid-cols-5 gap-6">
-        <div className="col-span-3 bg-white rounded-2xl p-6" style={{ border: "1px solid #fbe8ec" }}>
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-medium text-gray-700 text-sm">Budget by Category</h3>
-            <button onClick={() => setTab("budget")} className="text-xs px-2 py-1 rounded-full" style={{ background: "#fdf2f4", color: "#a8213b" }}>View all →</button>
+      <div className="grid grid-cols-12 gap-6 items-start">
+        {/* Left: what the couple controls */}
+        <div className="col-span-5 space-y-6">
+          <div className="bg-white rounded-2xl p-6" style={{ border: "1px solid #fbe8ec" }}>
+            <div className="flex items-center justify-between mb-1">
+              <h3 className="font-medium text-gray-700 text-sm">Shaadi Checklist</h3>
+              <span className="text-xs text-gray-600">{doneCount} of {checklist.length} done</span>
+            </div>
+            <p className="text-xs text-gray-600 mb-4">Tick an item when you've finished it. The agent only works on what's still open.</p>
+            <div className="space-y-1">
+              {checklist.map((c) => {
+                const done = checklistDone.has(c.id);
+                return (
+                  <button key={c.id} onClick={() => onToggleCheck(c.id)} aria-pressed={done}
+                    className="flex items-center gap-3 text-left w-full rounded-lg px-2 py-1.5 transition-colors hover:bg-[#fdf2f4]">
+                    <div className="w-5 h-5 rounded-full flex items-center justify-center shrink-0"
+                      style={done ? { background: "#a8213b" } : { border: "2px solid #c98a98" }}>
+                      {done && <span className="text-white text-xs">✓</span>}
+                    </div>
+                    <span className={`text-sm flex-1 ${done ? "line-through text-gray-500" : "text-gray-800"}`}>{c.text}</span>
+                    {c.category && !done && <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: "#fdf2f4", color: "#a8213b" }}>agent</span>}
+                  </button>
+                );
+              })}
+            </div>
           </div>
-          <div className="space-y-3">
-            {(Object.keys(allocation) as Category[]).slice(0, 6).map((k) => (
-              <div key={k}>
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs text-gray-600">{CATEGORY_META[k].icon} {CATEGORY_META[k].label}</span>
-                  <span className="text-xs text-gray-400">{inr(spent[k])} / {inr(allocation[k])}</span>
-                </div>
-                <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "#fdf2f4" }}>
-                  <div className="h-full rounded-full" style={{ width: `${Math.min(100, Math.round((spent[k]/allocation[k])*100))}%`, background: `linear-gradient(to right, ${CATEGORY_META[k].color}, #c08a0c)` }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
 
-        <div className="col-span-2 bg-white rounded-2xl p-6" style={{ border: "1px solid #fbe8ec" }}>
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-medium text-gray-700 text-sm">Shaadi Checklist</h3>
-            <span className="text-xs text-gray-600">{doneCount} of {checklist.length} done</span>
-          </div>
-          <div className="space-y-2.5">
-            {checklist.map((c, i) => {
-              const row = (
-                <>
-                  <div className="w-4 h-4 rounded-full flex items-center justify-center shrink-0"
-                    style={c.done ? { background: "#a8213b" } : { border: "2px solid #c98a98" }}>
-                    {c.done && <span className="text-white text-xs">✓</span>}
+          <div className="bg-white rounded-2xl p-6" style={{ border: "1px solid #fbe8ec" }}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-medium text-gray-700 text-sm">Budget by Category</h3>
+              <button onClick={() => setTab("budget")} className="text-xs px-2 py-1 rounded-full" style={{ background: "#fdf2f4", color: "#a8213b" }}>View all →</button>
+            </div>
+            <div className="space-y-3">
+              {(Object.keys(allocation) as Category[]).slice(0, 6).map((k) => (
+                <div key={k}>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs text-gray-700">{CATEGORY_META[k].icon} {CATEGORY_META[k].label}</span>
+                    <span className="text-xs text-gray-600">{inr(spent[k])} / {inr(allocation[k])}</span>
                   </div>
-                  <span className={`text-xs ${c.done ? "line-through text-gray-500" : "text-gray-700"}`}>{c.text}</span>
-                </>
-              );
-              return c.manual ? (
-                <button key={i} onClick={() => toggleManual(c.text)} className="flex items-center gap-2.5 text-left w-full">{row}</button>
-              ) : (
-                <div key={i} className="flex items-center gap-2.5">{row}</div>
-              );
-            })}
+                  <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "#fdf2f4" }}>
+                    <div className="h-full rounded-full" style={{ width: `${Math.min(100, Math.round((spent[k]/allocation[k])*100))}%`, background: `linear-gradient(to right, ${CATEGORY_META[k].color}, #c08a0c)` }} />
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
-          {bookings.length === 0 && (
-            <div className="mt-5 rounded-xl p-3 text-xs text-gray-700" style={{ background: "#fdf8f0", border: "1px solid #fbe8ec" }}>
-              Nothing is booked yet. Items tick off automatically as you book vendors.
-              <button onClick={() => setTab("vendors")} className="ml-1 underline font-medium" style={{ color: "#a8213b" }}>Find vendors →</button>
-            </div>
-          )}
-        </div>
-      </div>
 
-      <div className="bg-white rounded-2xl p-6" style={{ border: "1px solid #fbe8ec" }}>
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-medium text-gray-700 text-sm">Your Events ({plan.rituals.length}) by day</h3>
-          <button onClick={() => setEditing(true)} className="text-sm px-4 py-1.5 rounded-full font-medium" style={{ background: "#fdf2f4", color: "#a8213b", border: "1px solid #f5c6d0" }}>
-            ✎ Edit events
-          </button>
-        </div>
-        <div className="space-y-4">
-          {plan.schedule.map((d, i) => (
-            <div key={d.date} className="flex gap-4 items-start">
-              <div className="shrink-0 w-40">
-                <div className="text-sm font-semibold" style={{ color: "#a8213b" }}>Day {i + 1}</div>
-                <div className="text-sm text-gray-600">{formatDay(d.date)}</div>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {d.rituals.map((r) => (
-                  <span key={r} className="text-sm px-3 py-1 rounded-full" style={{ background: "#fdf2f4", color: "#a8213b", border: "1px solid #f5c6d0" }}>{r}</span>
-                ))}
-              </div>
+          <div className="bg-white rounded-2xl p-6" style={{ border: "1px solid #fbe8ec" }}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-medium text-gray-700 text-sm">Your Events ({plan.rituals.length}) by day</h3>
+              <button onClick={() => setEditing(true)} className="text-sm px-4 py-1.5 rounded-full font-medium" style={{ background: "#fdf2f4", color: "#a8213b", border: "1px solid #f5c6d0" }}>
+                ✎ Edit events
+              </button>
             </div>
-          ))}
+            <div className="space-y-4">
+              {plan.schedule.map((d, i) => (
+                <div key={d.date}>
+                  <div className="text-sm font-semibold" style={{ color: "#a8213b" }}>Day {i + 1} · <span className="font-normal text-gray-700">{formatDay(d.date)}</span></div>
+                  <div className="flex flex-wrap gap-2 mt-1.5">
+                    {d.rituals.map((r) => (
+                      <span key={r} className="text-sm px-3 py-1 rounded-full" style={{ background: "#fdf2f4", color: "#a8213b", border: "1px solid #f5c6d0" }}>{r}</span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="mt-5 pt-4 text-sm text-gray-700" style={{ borderTop: "1px solid #fbe8ec" }}>
+              🎨 Creative director: <span className="font-medium">{plan.creativeDirector ? "Yes, we'll help you find one" : "Not needed, you'll manage the look yourself"}</span>
+            </div>
+          </div>
         </div>
-        <div className="mt-5 pt-4 text-sm text-gray-700" style={{ borderTop: "1px solid #fbe8ec" }}>
-          🎨 Creative director: <span className="font-medium">{plan.creativeDirector ? "Yes, we'll help you find one" : "Not needed, you'll manage the look yourself"}</span>
+
+        {/* Right: the agent gets the wide area */}
+        <div className="col-span-7">
+          <AgentPanel plan={plan} agent={agent} setAgent={setAgent} setAllocation={setAllocation} completed={doneCategories(checklistDone)} />
         </div>
       </div>
 
@@ -1396,8 +1423,9 @@ const FIT_STYLE: Record<AgentPick["fit"], { label: string; color: string; bg: st
   over:    { label: "Over allocation",   color: "#a8213b", bg: "#fdf2f4" },
 };
 
-function AgentTab({ plan, agent, setAgent, setAllocation }: {
+function AgentPanel({ plan, agent, setAgent, setAllocation, completed }: {
   plan: WeddingPlan; agent: AgentState; setAgent: (fn: (a: AgentState) => AgentState) => void; setAllocation: (a: BudgetAllocation) => void;
+  completed: Category[]; // categories the couple already marked done on the checklist
 }) {
   const [phase, setPhase] = useState<"idle" | "running" | "error">("idle");
   const [error, setError] = useState("");
@@ -1418,7 +1446,7 @@ function AgentTab({ plan, agent, setAgent, setAllocation }: {
     try {
       const res = await fetch(`${API_BASE}/api/agent/run`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan, objective: agent.objective }),
+        body: JSON.stringify({ plan, objective: agent.objective, completed }),
       });
       if (!res.ok) throw new Error(`The agent returned an error (${res.status}).`);
       const data: AgentResult = await res.json();
@@ -1438,19 +1466,25 @@ function AgentTab({ plan, agent, setAgent, setAllocation }: {
 
   const cats = result ? (Object.keys(result.allocation) as Category[]).sort((a, b) => result.allocation[b] - result.allocation[a]) : [];
 
-  return (
-    <div className="p-8 max-w-4xl space-y-6">
-      <div>
-        <h1 className="text-3xl font-medium text-gray-800">Wedding Agent ✦</h1>
-        <p className="text-sm text-gray-600 mt-1">Tell the agent your goal. It plans the budget, searches vendors, checks availability and scores them for you.</p>
-      </div>
+  const openLabels = (Object.keys(CATEGORY_META) as Category[]).filter((k) => !completed.includes(k)).map((k) => CATEGORY_META[k].label);
+  const doneLabels = completed.map((k) => CATEGORY_META[k].label);
 
-      <div className="bg-white rounded-2xl p-6 space-y-4" style={{ border: "1px solid #fbe8ec" }}>
-        <label className="text-xs font-medium uppercase tracking-wider" style={{ color: "#a8213b" }}>Your goal</label>
+  return (
+    <div className="space-y-6">
+      <div className="bg-white rounded-2xl p-6 space-y-4" style={{ border: "2px solid #f5c6d0" }}>
+        <div>
+          <h2 className="text-2xl font-medium text-gray-800">Wedding Agent ✦</h2>
+          <p className="text-sm text-gray-600 mt-1">Tell the agent your goal. It plans the budget, searches vendors, checks availability and scores them for you.</p>
+        </div>
+        <label className="text-xs font-medium uppercase tracking-wider block" style={{ color: "#a8213b" }}>Your goal</label>
         <textarea rows={3} value={agent.objective} onChange={(e) => setAgent((a) => ({ ...a, objective: e.target.value }))}
           className="w-full rounded-xl px-4 py-3 text-sm resize-none focus:outline-none" style={INPUT_STYLE} />
-        <div className="flex items-center gap-4">
-          <button onClick={run} disabled={phase === "running" || !agent.objective.trim()}
+        <div className="rounded-xl p-3 text-sm text-gray-700 space-y-1" style={{ background: "#fdf8f0", border: "1px solid #fbe8ec" }}>
+          <div><span className="font-medium">Working on ({openLabels.length}):</span> {openLabels.length ? openLabels.join(", ") : "nothing: you've marked every vendor item as done"}</div>
+          {doneLabels.length > 0 && <div><span className="font-medium">Skipping, you marked these done:</span> {doneLabels.join(", ")}</div>}
+        </div>
+        <div className="flex items-center gap-4 flex-wrap">
+          <button onClick={run} disabled={phase === "running" || !agent.objective.trim() || openLabels.length === 0}
             className="text-white rounded-xl px-8 py-3 font-medium text-sm disabled:opacity-50 sparkle-btn" style={PRIMARY_BTN}>
             {phase === "running" ? "Agent is working…" : result ? "✦ Run again" : "✦ Run the Wedding Agent"}
           </button>
@@ -1552,6 +1586,24 @@ function AgentTab({ plan, agent, setAgent, setAllocation }: {
   );
 }
 
+// ─── Placeholder pages (content to be added) ─────────────────────────────────
+
+function ComingSoonTab({ icon, title, blurb }: { icon: string; title: string; blurb: string }) {
+  return (
+    <div className="p-8 max-w-4xl space-y-6">
+      <div>
+        <h1 className="text-3xl font-medium text-gray-800">{title}</h1>
+        <p className="text-sm text-gray-600 mt-1">{blurb}</p>
+      </div>
+      <div className="bg-white rounded-2xl p-12 text-center" style={{ border: "1px solid #fbe8ec" }}>
+        <div className="text-4xl mb-3" aria-hidden="true">{icon}</div>
+        <div className="text-xl font-medium text-gray-800">Coming soon</div>
+        <p className="text-sm text-gray-600 mt-1">We're preparing this section.</p>
+      </div>
+    </div>
+  );
+}
+
 // ─── App ──────────────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -1562,6 +1614,9 @@ export default function App() {
   const [activeThreadId, setActiveThreadId] = useState("t1");
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [agent, setAgent] = useState<AgentState>({ objective: "", result: null, applied: false });
+  // Checklist is entirely the couple's call: nothing is ticked automatically.
+  const [checklistDone, setChecklistDone] = useState<Set<string>>(new Set());
+  const toggleCheck = (id: string) => setChecklistDone((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
   const toggleBook = (v: Vendor, amount: number) =>
     setBookings((bs) => bs.some((b) => b.vendorId === v.id)
@@ -1601,8 +1656,10 @@ export default function App() {
         <Sidebar tab={tab} setTab={setTab} plan={plan} unreadCount={unreadCount} />
       </div>
       <main className="flex-1 overflow-y-auto relative" style={{ zIndex: 10 }}>
-        {tab === "dashboard" && <DashboardTab plan={plan} allocation={allocation} bookings={bookings} setTab={setTab} onEditPlan={setPlan} />}
-        {tab === "agent"     && <AgentTab plan={plan} agent={agent} setAgent={setAgent} setAllocation={setAllocation} />}
+        {tab === "dashboard" && <DashboardTab plan={plan} allocation={allocation} bookings={bookings} checklistDone={checklistDone} onToggleCheck={toggleCheck}
+          agent={agent} setAgent={setAgent} setAllocation={setAllocation} setTab={setTab} onEditPlan={setPlan} />}
+        {tab === "stories"   && <ComingSoonTab icon="❀" title="Success Stories" blurb="Real weddings planned on Partnered." />}
+        {tab === "blogs"     && <ComingSoonTab icon="✐" title="Blogs" blurb="Ideas, guides and advice for planning your shaadi." />}
         {tab === "budget"    && <BudgetTab plan={plan} allocation={allocation} setAllocation={setAllocation} />}
         {tab === "vendors"   && <VendorsTab plan={plan} bookings={bookings} onToggleBook={toggleBook} onMessage={messageVendor} />}
         {tab === "messages"  && <MessagesTab plan={plan} threads={threads} setThreads={setThreads} activeId={activeThreadId} setActiveId={setActiveThreadId} />}
