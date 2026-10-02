@@ -84,7 +84,11 @@ def chat(req: ChatRequest):
 
     # Agent loop: let the model call tools until it gives a final answer (max 5 rounds).
     for _ in range(5):
-        resp = client.chat.completions.create(model=MODEL, messages=messages, tools=TOOLS)
+        try:
+            resp = client.chat.completions.create(model=MODEL, messages=messages, tools=TOOLS)
+        except Exception as e:
+            # Surface the provider's error (bad key, wrong model, no tool support...)
+            raise HTTPException(502, f"LLM call failed: {type(e).__name__}: {e}")
         msg = resp.choices[0].message
         if not msg.tool_calls:
             return {"reply": msg.content}

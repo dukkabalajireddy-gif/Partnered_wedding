@@ -28,3 +28,6 @@ venv/
 
 # keep the example env file
 !.env.example
+
+# project uses pnpm-lock.yaml
+package-lock.json

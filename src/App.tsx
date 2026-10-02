@@ -441,8 +441,30 @@ function BudgetTab({ plan, allocation, setAllocation }: {
   const overBudget = remaining < 0;
   const underBudget = remaining > plan.budget * 0.05;
 
+  const [lockTotal, setLockTotal] = useState(true);
+
+  // Set one category; with "lock total" on, spread the difference across the others
+  // in proportion to their current size so the total stays equal to the budget.
+  const updateCategory = (k: Category, raw: number) => {
+    const value = Math.min(plan.budget, Math.max(0, Math.round(raw)));
+    const next = { ...allocation, [k]: value };
+    if (lockTotal) {
+      const others = (Object.keys(allocation) as Category[]).filter((c) => c !== k);
+      const target = plan.budget - value;
+      const othersSum = others.reduce((a, c) => a + allocation[c], 0);
+      others.forEach((c) => {
+        next[c] = othersSum > 0 ? Math.round((allocation[c] / othersSum) * target) : Math.round(target / others.length);
+      });
+      // put any rounding leftover on the largest other category
+      const drift = target - others.reduce((a, c) => a + next[c], 0);
+      const largest = others.reduce((a, c) => (next[c] > next[a] ? c : a), others[0]);
+      next[largest] = Math.max(0, next[largest] + drift);
+    }
+    setAllocation(next);
+  };
+
   const saveEdit = (k: Category) => {
-    setAllocation({ ...allocation, [k]: Math.max(0, parseInt(editVal) || 0) });
+    updateCategory(k, parseInt(editVal) || 0);
     setEditing(null);
   };
 
@@ -461,6 +483,11 @@ function BudgetTab({ plan, allocation, setAllocation }: {
           <p className="text-sm text-gray-400 mt-1">AI-suggested allocations for {plan.guestCount} guests.</p>
         </div>
         <div className="flex gap-2">
+          <button onClick={() => setLockTotal(!lockTotal)}
+            className="text-xs px-4 py-2 rounded-xl transition-colors"
+            style={lockTotal ? { background: "#fdf2f4", color: "#a8213b", border: "1px solid #a8213b" } : { color: "#6b6b6b", border: "1px solid #e5e5e5" }}>
+            {lockTotal ? "🔒 Total locked" : "🔓 Total free"}
+          </button>
           <button onClick={() => setAllocation(mlAllocate(plan.budget, plan.guestCount))}
             className="text-xs px-4 py-2 rounded-xl transition-colors"
             style={{ color: "#a8213b", border: "1px solid #f5c6d0" }}>✦ Reset to AI</button>
@@ -573,9 +600,11 @@ function BudgetTab({ plan, allocation, setAllocation }: {
                     style={{ color: "#c08a0c" }}>edit</button>
                 </div>
               )}
-              <div className="mt-2 h-1 rounded-full overflow-hidden" style={{ background: "#fdf2f4" }}>
-                <div className="h-full rounded-full" style={{ width: `${Math.round((allocation[k] / plan.budget) * 100)}%`, background: CATEGORY_META[k].color }} />
-              </div>
+              <input type="range" min={0} max={plan.budget} step={5000} value={allocation[k]}
+                onChange={(e) => updateCategory(k, Number(e.target.value))}
+                aria-label={`${CATEGORY_META[k].label} budget`}
+                className="mt-3 w-full cursor-pointer"
+                style={{ accentColor: CATEGORY_META[k].color }} />
               <div className="text-xs text-gray-400 mt-1">
                 {Math.round((allocation[k] / plan.budget) * 100)}% · AI suggests {inr(mlSuggestion[k])}
               </div>
