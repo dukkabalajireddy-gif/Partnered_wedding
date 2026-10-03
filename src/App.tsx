@@ -610,33 +610,60 @@ const INSPIRATION_NAV: { id: Tab; label: string; icon: string }[] = [
   { id: "blogs",   label: "Blogs",           icon: "✐" },
 ];
 
-// "Powered by" marks for our three partners. These are plain text wordmarks with a small glyph:
-// swap in the official logo files (with each partner's permission) by giving a mark an `src`.
-const PARTNERS: { name: string; glyph: string; role: string; src?: string }[] = [
-  { name: "Gnani",      glyph: "🎙", role: "Voice" },
-  { name: "Delhivery",  glyph: "🚚", role: "Logistics" },
-  { name: "Pine Labs",  glyph: "🌲", role: "Payments" },
+// Our three partners, shown by name. Official logos can replace these once each partner has agreed to it.
+const PARTNERS: { name: string; does: string }[] = [
+  { name: "Gnani", does: "voice calls and voice assistance (coming soon)" },
+  { name: "Delhivery", does: "shipment tracking for gifts, invitations, outfits and decor" },
+  { name: "Pine Labs", does: "vendor payments (test mode for now)" },
 ];
 
-function PoweredBy({ className = "" }: { className?: string }) {
+function AppFooter({ onAbout, className = "" }: { onAbout: () => void; className?: string }) {
   return (
-    <div className={className}>
-      <div className="text-xs font-semibold uppercase tracking-wider text-gray-600">Powered by</div>
-      <div className="mt-2 grid grid-cols-1 gap-1.5">
-        {PARTNERS.map((p) => (
-          <div key={p.name} className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 bg-white" style={{ border: "1px solid #f1e4e7" }} title={`${p.name}: ${p.role}`}>
-            {p.src
-              ? <img src={p.src} alt={p.name} className="h-5 w-auto" />
-              : <span className="text-sm leading-none" aria-hidden="true">{p.glyph}</span>}
-            <span className="text-sm font-semibold tracking-tight text-gray-800">{p.name}</span>
-            <span className="ml-auto text-xs text-gray-600">{p.role}</span>
+    <footer className={`items-center justify-between gap-x-4 gap-y-1 flex-wrap px-4 sm:px-6 py-2.5 text-sm text-gray-700 bg-white ${className}`} style={{ borderTop: "1px solid #fbe8ec" }}>
+      <span>Partnered with {PARTNERS.map((p, i) => <span key={p.name}>{i > 0 && <span aria-hidden="true"> · </span>}<span className="font-semibold text-gray-800">{p.name}</span></span>)}</span>
+      <button onClick={onAbout} className="underline font-medium min-h-9" style={{ color: "#a8213b" }}>About Partnered</button>
+    </footer>
+  );
+}
+
+function AboutModal({ onClose }: { onClose: () => void }) {
+  const features: [string, string][] = [
+    ["Plan the budget", "Set a total, split it across categories, and fine-tune with sliders."],
+    ["Find vendors", "Browse real listings city by city, compare Partner scores and message them."],
+    ["Let the agent help", "A wedding agent shortlists vendors that fit your budget, style and dates."],
+    ["Pay and track", "Keep payment schedules, guest RSVPs and every delivery in one place."],
+  ];
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4" style={{ background: "rgba(0,0,0,0.45)" }} onClick={onClose}>
+      <div className="w-full max-w-lg max-h-[92dvh] overflow-y-auto rounded-t-3xl sm:rounded-3xl bg-white p-5 sm:p-8 space-y-5" style={{ borderTop: "3px solid #c08a0c", paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom))" }} onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "#a8213b" }}><span className="text-white text-sm font-bold">P</span></div>
+              <h3 className="text-2xl font-medium" style={{ color: "#a8213b" }}>About Partnered</h3>
+            </div>
+            <p className="text-sm text-gray-700 mt-2 leading-relaxed">Partnered is a wedding planner built for Indian couples. It brings your budget, vendors, guests, payments and deliveries together, with an agent that does the legwork of finding and comparing vendors.</p>
           </div>
-        ))}
+          <button onClick={onClose} aria-label="Close" className="text-xl px-3 py-2 -mr-3 -mt-2" style={{ color: "#444" }}>✕</button>
+        </div>
+
+        <ul className="space-y-2.5">
+          {features.map(([title, text]) => (
+            <li key={title} className="flex gap-3 text-sm text-gray-800 leading-relaxed"><span style={{ color: "#c08a0c" }} aria-hidden="true">✦</span><span><span className="font-semibold">{title}.</span> {text}</span></li>
+          ))}
+        </ul>
+
+        <div className="rounded-xl p-4 space-y-2" style={{ background: "#fdf8f0", border: "1px solid #fbe8ec" }}>
+          <div className="text-xs font-semibold uppercase tracking-wider" style={{ color: "#a8213b" }}>Our partners</div>
+          {PARTNERS.map((p) => <div key={p.name} className="text-sm text-gray-800"><span className="font-semibold">{p.name}</span>: {p.does}</div>)}
+        </div>
+
+        <p className="text-xs text-gray-700 leading-relaxed">Partnered is a prototype. Vendor listings come from OpenStreetMap contributors (ODbL). Prices are typical estimates, not quotes, and payments and sending run in test mode, so no real money moves and no real messages are sent.</p>
+        <button onClick={onClose} className="w-full text-white rounded-xl py-3 font-medium text-sm" style={PRIMARY_BTN}>Close</button>
       </div>
     </div>
   );
 }
-
 function Sidebar({ tab, setTab, plan, unreadCount, onReset, onLogout, phone }: { tab: Tab; setTab: (t: Tab) => void; plan: WeddingPlan; unreadCount: number; onReset: () => void; onLogout: () => void; phone: string }) {
   const daysLeft = useMemo(() => Math.max(0, Math.ceil((new Date(plan.date).getTime() - Date.now()) / 86400000)), [plan.date]);
   return (
@@ -698,7 +725,6 @@ function Sidebar({ tab, setTab, plan, unreadCount, onReset, onLogout, phone }: {
       <div className="px-4 py-4" style={{ borderTop: "1px solid #fdf2f4" }}>
         <div className="text-xs text-gray-400">{isTentative(plan) || plan.dateMode === "unsure" ? dateLabel(plan) : new Date(plan.date).toLocaleDateString("en-IN", { month: "long", day: "numeric", year: "numeric" })}</div>
         <div className="text-xs mt-0.5" style={{ color: "#c08a0c" }}>{plan.guestCount} guests · {inr(plan.budget)}</div>
-        <PoweredBy className="mt-4" />
         <div className="mt-3 text-xs text-gray-700">Signed in · {prettyPhone(phone)}</div>
         <div className="flex gap-4">
           <button onClick={onLogout} className="text-xs text-gray-800 underline min-h-8">Log out</button>
@@ -2000,7 +2026,7 @@ function MobileTopBar({ plan }: { plan: WeddingPlan }) {
   );
 }
 
-function MobileTabBar({ tab, setTab, plan, unreadCount, onReset, onLogout, phone }: { tab: Tab; setTab: (t: Tab) => void; plan: WeddingPlan; unreadCount: number; onReset: () => void; onLogout: () => void; phone: string }) {
+function MobileTabBar({ tab, setTab, plan, unreadCount, onReset, onLogout, onAbout, phone }: { tab: Tab; setTab: (t: Tab) => void; plan: WeddingPlan; unreadCount: number; onReset: () => void; onLogout: () => void; onAbout: () => void; phone: string }) {
   const [more, setMore] = useState(false);
   const moreActive = NAV_SECTIONS.some(([, items]) => items.some((n) => n.id === tab));
   const item = (active: boolean) => ({ color: active ? "#a8213b" : "#1a1a1a", borderTop: `3px solid ${active ? "#a8213b" : "transparent"}` });
@@ -2048,7 +2074,7 @@ function MobileTabBar({ tab, setTab, plan, unreadCount, onReset, onLogout, phone
                 </div>
               </div>
             ))}
-            <PoweredBy />
+            <button onClick={() => { setMore(false); onAbout(); }} className="text-sm font-medium underline min-h-11" style={{ color: "#a8213b" }}>About Partnered</button>
             <div className="text-sm text-gray-700">Signed in · {prettyPhone(phone)}</div>
             <div className="flex gap-6">
               <button onClick={() => { setMore(false); onLogout(); }} className="text-sm text-gray-800 underline min-h-11">Log out</button>
@@ -2169,6 +2195,8 @@ function CoupleApp({ session, onLogout, onSwitchRole }: { session: Session; onLo
     return () => { window.removeEventListener("storage", onStorage); window.clearInterval(timer); };
   }, [phone]);
 
+  const [about, setAbout] = useState(false);
+
   const startOver = () => {
     if (!window.confirm("Start over? This clears your plan, bookings, payments, guests, deliveries and messages from this browser.")) return;
     clearSaved(phone);
@@ -2235,8 +2263,11 @@ function CoupleApp({ session, onLogout, onSwitchRole }: { session: Session; onLo
         {tab === "payments"   && <PaymentsTab plan={plan} bookings={bookings} allocation={allocation} payments={payments} setPayments={setPayments} onBrowse={() => setTab("vendors")} />}
         {tab === "guests"     && <GuestsTab plan={plan} guests={guests} setGuests={setGuests} onGuestCount={(n) => setPlan({ ...plan, guestCount: n })} />}
         {tab === "deliveries" && <DeliveriesTab plan={plan} bookings={bookings} deliveries={deliveries} setDeliveries={setDeliveries} />}
+        {tab !== "messages" && <AppFooter onAbout={() => setAbout(true)} className="flex lg:hidden mt-8" />}
       </main>
-      <MobileTabBar tab={tab} setTab={setTab} plan={plan} unreadCount={unreadCount} onReset={startOver} onLogout={onLogout} phone={phone} />
+      <AppFooter onAbout={() => setAbout(true)} className="hidden lg:flex shrink-0" />
+      <MobileTabBar tab={tab} setTab={setTab} plan={plan} unreadCount={unreadCount} onReset={startOver} onLogout={onLogout} onAbout={() => setAbout(true)} phone={phone} />
+      {about && <AboutModal onClose={() => setAbout(false)} />}
       </div>
     </div>
   );
