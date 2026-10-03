@@ -139,10 +139,17 @@ export interface Guest {
 
 export type DeliveryKind = "gift" | "invitation" | "attire" | "decor" | "other";
 export const DELIVERY_STEPS = ["Ordered", "Picked up", "In transit", "Out for delivery", "Delivered"] as const;
+export interface TrackScan { time: string; status: string; location: string; note: string; }
+// What the tracking service last told us about a waybill (kept so it still shows when offline).
+export interface Tracking {
+  source: "demo" | "staging" | "production"; status: string; returning: boolean; location: string; updatedAt: string;
+  note: string; scans: TrackScan[]; checkedAt: number;
+}
 export interface Delivery {
   id: string; item: string; kind: DeliveryKind; from: string; to: string; waybill: string;
   step: number; // index into DELIVERY_STEPS
   expected: string; neededBy: string; // yyyy-mm-dd
+  tracking?: Tracking;
 }
 export const DELIVERY_KIND: Record<DeliveryKind, { label: string; icon: string }> = {
   gift: { label: "Gifts & hampers", icon: "🎁" }, invitation: { label: "Wedding invitations", icon: "💌" },
