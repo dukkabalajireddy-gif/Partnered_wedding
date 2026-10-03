@@ -218,27 +218,18 @@ function ScheduleBuilder({ rituals, days, onChange }: { rituals: string[]; days:
   );
 }
 
+// An optional tick box: a creative director shapes the overall look across all your events.
 function CreativeDirectorChoice({ value, onChange }: { value: boolean | undefined; onChange: (v: boolean) => void }) {
   return (
-    <div className="rounded-2xl p-4 space-y-3" style={{ background: "linear-gradient(135deg, #fdf2f4, #fefdf0)", border: "1px solid #f5c6d0" }}>
-      <div>
-        <div className="text-lg font-semibold text-gray-800">Would you like a creative director for your wedding?</div>
-        <p className="text-sm text-gray-600 mt-1">
-          A creative director shapes the overall look and feel across all your events (theme, décor, styling and how the vendors work together) so everything feels like one story.
-        </p>
-      </div>
-      <div className="flex gap-3">
-        {([[true, "Yes, I'd like one"], [false, "No, I'll manage"]] as const).map(([v, label]) => (
-          <button key={label} onClick={() => onChange(v)} aria-pressed={value === v}
-            className="flex-1 rounded-xl py-2.5 text-sm font-medium transition-all" style={value === v ? CHIP_ON : CHIP_OFF}>
-            {value === v ? "✓ " : ""}{label}
-          </button>
-        ))}
-      </div>
-    </div>
+    <label className="flex items-start gap-3 rounded-xl px-4 py-3 cursor-pointer min-h-12" style={{ background: value ? "#fdf2f4" : "#fff", border: value ? "1px solid #a8213b" : "1px solid #f5c6d0" }}>
+      <input type="checkbox" checked={value === true} onChange={(e) => onChange(e.target.checked)} className="w-5 h-5 mt-0.5 accent-[#a8213b] shrink-0" />
+      <span className="min-w-0">
+        <span className="block text-base font-medium text-gray-800">I'd like a creative director to guide me <span className="font-normal text-gray-700">(optional)</span></span>
+        <span className="block text-sm text-gray-700 mt-0.5">Someone to shape the overall look across your events. It's added to your checklist, and decor gets a little more of your budget.</span>
+      </span>
+    </label>
   );
 }
-
 // Edit your events, the day-by-day schedule and the creative director choice after onboarding.
 function EditEventsModal({ plan, onSave, onClose }: { plan: WeddingPlan; onSave: (p: WeddingPlan) => void; onClose: () => void }) {
   const [rituals, setRituals] = useState<string[]>(plan.rituals);
@@ -590,9 +581,8 @@ function OnboardingScreen({ cities, onComplete }: { cities: CityInfo[]; onComple
               <CreativeDirectorChoice value={form.creativeDirector} onChange={(v) => setForm((f) => ({ ...f, creativeDirector: v }))} />
               <div className="flex gap-3">
                 <button className="flex-1 rounded-xl py-3 font-medium text-sm" style={{ border: "1px solid #f5c6d0", color: "#a8213b" }} onClick={() => setStep(3)}>Back</button>
-                <button className="flex-[2] text-white rounded-xl py-3 font-medium text-sm disabled:opacity-40 sparkle-btn" style={PRIMARY_BTN}
-                  disabled={form.creativeDirector === undefined}
-                  onClick={() => onComplete({ ...form, schedule: finalizeSchedule(days), dateMode: form.dateMode ?? "exact", sameVenue: form.sameVenue ?? "unsure", styles: form.styles ?? [], radiusKm: form.radiusKm ?? null } as WeddingPlan)}>Shubh Aarambh ✨</button>
+                <button className="flex-[2] text-white rounded-xl py-3 font-medium text-sm sparkle-btn" style={PRIMARY_BTN}
+                  onClick={() => onComplete({ ...form, creativeDirector: form.creativeDirector ?? false, schedule: finalizeSchedule(days), dateMode: form.dateMode ?? "exact", sameVenue: form.sameVenue ?? "unsure", styles: form.styles ?? [], radiusKm: form.radiusKm ?? null } as WeddingPlan)}>Shubh Aarambh ✨</button>
               </div>
             </div>
           )}        </div>
@@ -847,7 +837,7 @@ function DashboardTab({ plan, allocation, bookings, checklistDone, onToggleCheck
               ))}
             </div>
             <div className="mt-5 pt-4 text-sm text-gray-700" style={{ borderTop: "1px solid #fbe8ec" }}>
-              🎨 Creative director: <span className="font-medium">{plan.creativeDirector ? "Yes, we'll help you find one" : "Not needed, you'll manage the look yourself"}</span>
+              🎨 Creative director: <span className="font-medium">{plan.creativeDirector ? "Yes, added to your checklist" : "Not needed"}</span>
             </div>
             {(plan.styles?.length ?? 0) > 0 && (
               <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-gray-700">
