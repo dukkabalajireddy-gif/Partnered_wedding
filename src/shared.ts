@@ -18,7 +18,39 @@ export interface WeddingPlan {
   rituals: string[];
   schedule: ScheduleDay[];
   creativeDirector: boolean;
+  // Added by the longer onboarding. All optional, so plans saved earlier still open.
+  dateMode?: "exact" | "month" | "unsure"; // for "month" and "unsure", `date` is a working date until the couple sets the real one
+  state?: string;
+  radiusKm?: number | null;               // how far from the city centre to look for vendors (null = not sure yet)
+  sameVenue?: "yes" | "no" | "unsure";    // ceremony and reception in the same place?
+  budgetBand?: string; guestBand?: string; // what the couple picked, when they gave a range
+  styles?: string[];                       // up to three wedding styles
 }
+
+export const BUDGET_BANDS: { label: string; value: number }[] = [
+  { label: "Under ₹5 lakh", value: 400000 }, { label: "₹5 – 10 lakh", value: 750000 }, { label: "₹10 – 20 lakh", value: 1500000 },
+  { label: "₹20 – 30 lakh", value: 2500000 }, { label: "₹30 – 50 lakh", value: 4000000 }, { label: "₹50 lakh and above", value: 6000000 },
+];
+export const GUEST_BANDS: { label: string; value: number }[] = [
+  { label: "Under 50", value: 40 }, { label: "50 – 100", value: 75 }, { label: "100 – 200", value: 150 },
+  { label: "200 – 300", value: 250 }, { label: "300 – 500", value: 400 }, { label: "500 and above", value: 600 },
+];
+export const GUESTS_UNSURE = 200; // what we plan for when the couple is not sure yet
+
+export const WEDDING_STYLES: { name: string; icon: string; blurb: string }[] = [
+  { name: "Traditional & classic", icon: "🪔", blurb: "Rituals first, timeless look" },
+  { name: "Modern & contemporary", icon: "✨", blurb: "Clean lines, current trends" },
+  { name: "Royal & palace", icon: "👑", blurb: "Forts, palaces, grand scale" },
+  { name: "Vintage & heritage", icon: "🏛️", blurb: "Havelis, old-world charm" },
+  { name: "Rustic & garden", icon: "🌿", blurb: "Open air, florals, warm light" },
+  { name: "Minimal & intimate", icon: "🕊️", blurb: "Small, calm, personal" },
+  { name: "Ethnic & regional", icon: "🎎", blurb: "Inspired by your culture and region" },
+  { name: "Themed", icon: "🎭", blurb: "A story or theme runs through it" },
+  { name: "Destination", icon: "🌴", blurb: "Everyone travels to celebrate" },
+  { name: "Glamorous & luxe", icon: "💎", blurb: "Statement decor, high drama" },
+];
+
+export const isTentative = (p: Pick<WeddingPlan, "dateMode">) => p.dateMode === "month" || p.dateMode === "unsure";
 
 export function inr(n: number) { return "₹" + n.toLocaleString("en-IN"); }
 
@@ -50,6 +82,15 @@ export function daysBetween(from: string, to: string) {
 }
 export function formatDay(s: string) {
   return new Date(`${s}T00:00:00`).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+}
+export function monthYear(s: string) {
+  return new Date(`${s}T00:00:00`).toLocaleDateString("en-IN", { month: "long", year: "numeric" });
+}
+// How to show the wedding date: the real date, just the month, or a note that it is not set yet.
+export function dateLabel(p: Pick<WeddingPlan, "date" | "dateMode">, long = true) {
+  if (p.dateMode === "unsure") return "Date not set yet";
+  if (p.dateMode === "month") return `${monthYear(p.date)} (date to be set)`;
+  return long ? formatDay(p.date) : shortDay(p.date);
 }
 export function shortDay(s: string) {
   return new Date(`${s}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
@@ -108,15 +149,102 @@ export const DELIVERY_KIND: Record<DeliveryKind, { label: string; icon: string }
   attire: { label: "Dresses & attire", icon: "👗" }, decor: { label: "Decor items", icon: "💐" }, other: { label: "Other", icon: "📦" },
 };
 
-// ── Saving the couple's work in this browser ────────────────────────────────────
+// ── Phone numbers ───────────────────────────────────────────────────────────────
 
-const STORE_KEY = "partnered.state.v1";
-export function loadSaved<T>(): Partial<T> {
-  try { return JSON.parse(localStorage.getItem(STORE_KEY) ?? "{}"); } catch { return {}; }
+export function normalisePhone(raw: string): string {
+  const digits = raw.replace(/[^\d+]/g, "");
+  const only = digits.replace(/\D/g, "");
+  if (digits.startsWith("+")) return `+${only}`;
+  if (only.length === 10) return `+91${only}`;
+  if (only.length === 11 && only.startsWith("0")) return `+91${only.slice(1)}`;
+  if (only.length === 12 && only.startsWith("91")) return `+${only}`;
+  return only ? `+${only}` : "";
 }
-export function save(state: unknown) {
-  try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch { /* private mode or storage full: carry on without saving */ }
+export function prettyPhone(p: string) {
+  return p.startsWith("+91") && p.length === 13 ? `+91 ${p.slice(3, 8)} ${p.slice(8)}` : p;
 }
-export function clearSaved() {
-  try { localStorage.removeItem(STORE_KEY); } catch { /* nothing to clear */ }
+
+// ── Chat ────────────────────────────────────────────────────────────────────────
+
+export interface ChatMessage { id: string; from: "me" | "vendor"; text: string; time: string; ts?: number; }
+
+// ── Demo login ──────────────────────────────────────────────────────────────────
+// A pretend sign-in for the prototype: any mobile number works, the OTP is always the one below, and nothing is
+// checked on a server. Real sign-in (OTP by SMS) comes with the database.
+
+export const DEMO_OTP = "123456";
+export const DEMO_COUPLE = { phone: "+919000000001", email: "priya.demo@partnered.example" };
+export const DEMO_VENDOR = { phone: "+919000000002", email: "vendor.demo@partnered.example" };
+
+export type Role = "couple" | "vendor";
+export interface Session { phone: string; email?: string; }
+
+const SESSION_KEY = (role: Role) => `partnered.session.${role}`;
+export function getSession(role: Role): Session | null {
+  try { const s = JSON.parse(localStorage.getItem(SESSION_KEY(role)) ?? "null"); return s?.phone ? s : null; } catch { return null; }
+}
+export function setSession(role: Role, s: Session) { try { localStorage.setItem(SESSION_KEY(role), JSON.stringify(s)); } catch { /* storage unavailable */ } }
+export function clearSession(role: Role) { try { localStorage.removeItem(SESSION_KEY(role)); } catch { /* nothing to clear */ } }
+
+// ── Each couple's work, kept in this browser under their mobile number ─────────
+
+const PROFILES_KEY = "partnered.profiles.v1";
+const LEGACY_KEY = "partnered.state.v1"; // before logins existed: adopted by the demo couple account
+function readProfiles(): Record<string, unknown> {
+  try { return JSON.parse(localStorage.getItem(PROFILES_KEY) ?? "{}"); } catch { return {}; }
+}
+export function loadSaved<T>(phone: string): Partial<T> {
+  const found = readProfiles()[phone];
+  if (found) return found as Partial<T>;
+  if (phone === DEMO_COUPLE.phone) { try { return JSON.parse(localStorage.getItem(LEGACY_KEY) ?? "{}"); } catch { /* ignore */ } }
+  return {};
+}
+export function save(phone: string, state: unknown) {
+  try { localStorage.setItem(PROFILES_KEY, JSON.stringify({ ...readProfiles(), [phone]: state })); } catch { /* private mode or storage full: carry on without saving */ }
+}
+export function clearSaved(phone: string) {
+  try {
+    const all = readProfiles(); delete all[phone];
+    localStorage.setItem(PROFILES_KEY, JSON.stringify(all));
+    if (phone === DEMO_COUPLE.phone) localStorage.removeItem(LEGACY_KEY);
+  } catch { /* nothing to clear */ }
+}
+
+// ── The shared inbox: how a couple's message reaches the vendor desk (and the reply comes back) ─────
+// Prototype: both live in this browser, so a couple tab and a vendor tab on the same device talk to each other.
+// Across devices needs the database.
+
+export interface VendorInfo { id: string; name: string; category: Category; area: string; city: string; estCost?: number; }
+export interface Conversation {
+  id: string; threadId: string; couplePhone: string;
+  couple: { names: string; city: string; date: string; guests: number };
+  vendor: VendorInfo; messages: ChatMessage[]; updatedAt: number;
+}
+export const INBOX_KEY = "partnered.inbox.v1";
+
+export function readInbox(): Record<string, Conversation> {
+  try { return JSON.parse(localStorage.getItem(INBOX_KEY) ?? "{}"); } catch { return {}; }
+}
+function mergeMessages(a: ChatMessage[], b: ChatMessage[]): ChatMessage[] {
+  const byId = new Map<string, ChatMessage>();
+  [...a, ...b].forEach((m) => byId.set(m.id, m));
+  return [...byId.values()].sort((x, y) => (x.ts ?? 0) - (y.ts ?? 0));
+}
+// Add or update a conversation without losing messages the other side added in the meantime.
+export function upsertConversation(c: Omit<Conversation, "updatedAt">) {
+  try {
+    const inbox = readInbox();
+    const merged = mergeMessages(inbox[c.id]?.messages ?? [], c.messages);
+    if (inbox[c.id] && merged.length === inbox[c.id].messages.length) return; // nothing new: do not wake other tabs
+    inbox[c.id] = { ...c, messages: merged, updatedAt: Date.now() };
+    localStorage.setItem(INBOX_KEY, JSON.stringify(inbox));
+  } catch { /* storage unavailable */ }
+}
+export function appendMessage(convId: string, m: ChatMessage) {
+  try {
+    const inbox = readInbox();
+    if (!inbox[convId]) return;
+    inbox[convId] = { ...inbox[convId], messages: mergeMessages(inbox[convId].messages, [m]), updatedAt: Date.now() };
+    localStorage.setItem(INBOX_KEY, JSON.stringify(inbox));
+  } catch { /* storage unavailable */ }
 }

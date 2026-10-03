@@ -3,9 +3,11 @@ import BlogsTab from "./Blogs";
 import PaymentsTab from "./Payments";
 import GuestsTab from "./Guests";
 import DeliveriesTab from "./Deliveries";
+import LoginScreen from "./Auth";
+import VendorDesk from "./VendorDesk";
 import {
-  API_BASE, CATEGORY_META, INPUT_STYLE, PRIMARY_BTN, clearSaved, formatDay, inr, isoDate, loadSaved, save,
-  type Booking, type BudgetAllocation, type Category, type Delivery, type Guest, type Payment, type ScheduleDay, type WeddingPlan,
+  API_BASE, BUDGET_BANDS, CATEGORY_META, daysBetween, GUESTS_UNSURE, GUEST_BANDS, INBOX_KEY, WEDDING_STYLES, addDays, dateLabel, isTentative, monthYear, INPUT_STYLE, PRIMARY_BTN, clearSaved, clearSession, formatDay, getSession, inr, isoDate, loadSaved, prettyPhone, readInbox, save, setSession, upsertConversation,
+  type Booking, type ChatMessage, type Role, type Session, type BudgetAllocation, type Category, type Delivery, type Guest, type Payment, type ScheduleDay, type WeddingPlan,
 } from "./shared";
 
 
@@ -28,9 +30,6 @@ interface CityInfo { name: string; state: string; kind: "metro" | "city" | "dest
 
 
 
-interface ChatMessage {
-  id: string; from: "me" | "vendor"; text: string; time: string;
-}
 
 interface Thread {
   vendor?: VendorRef; // who this conversation is with, so the chat can lead to a booking and payment
@@ -351,9 +350,22 @@ function CityDropdown({ cities, value, onChange }: { cities: CityInfo[]; value: 
 
 // ─── Onboarding ───────────────────────────────────────────────────────────────
 
+function ChoiceRow<T extends string>({ value, options, onChange, label }: { value: T | undefined; options: [T, string][]; onChange: (v: T) => void; label: string }) {
+  return (
+    <div role="radiogroup" aria-label={label} className="grid gap-2" style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}>
+      {options.map(([v, text]) => (
+        <button key={v} type="button" role="radio" aria-checked={value === v} onClick={() => onChange(v)}
+          className="rounded-xl py-2.5 px-2 text-sm font-medium transition-all min-h-11" style={value === v ? CHIP_ON : CHIP_OFF}>
+          {value === v ? "✓ " : ""}{text}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function OnboardingScreen({ cities, onComplete }: { cities: CityInfo[]; onComplete: (p: WeddingPlan) => void }) {
   const [step, setStep] = useState(0);
-  const [form, setForm] = useState<Partial<WeddingPlan>>({ rituals: [], schedule: [] });
+  const [form, setForm] = useState<Partial<WeddingPlan>>({ rituals: [], schedule: [], dateMode: "exact", styles: [] });
   const set = (k: keyof WeddingPlan, v: string | number) => setForm((f) => ({ ...f, [k]: v }));
   const rituals = form.rituals ?? [];
   const days = form.schedule ?? [];
@@ -373,6 +385,23 @@ function OnboardingScreen({ cities, onComplete }: { cities: CityInfo[]; onComple
   const dayError = scheduleError(rituals, days);
   const dayMessage = scheduleError(rituals, days, true);
 
+  // Months the wedding could still fall in, for "just the month"
+  const monthOptions = useMemo(() => {
+    const out: { value: string; label: string }[] = [];
+    const today = new Date();
+    for (let i = 0; i < 36; i++) {
+      const d = new Date(today.getFullYear(), today.getMonth() + i, 15);
+      if (d >= today) out.push({ value: isoDate(d), label: monthYear(isoDate(d)) });
+    }
+    return out;
+  }, []);
+  // With only a month, or no date yet, the app plans around a working date until the real one is known.
+  const chooseDateMode = (m: "exact" | "month" | "unsure") =>
+    setForm((f) => ({ ...f, dateMode: m, date: m === "unsure" ? addDays(isoDate(new Date()), 180) : f.dateMode === m ? f.date : "" }));
+  const pickCity = (name: string) => setForm((f) => ({ ...f, location: name, state: (cities.length ? cities : FALLBACK_CITIES).find((c) => c.name === name)?.state }));
+  const budgetChoice = form.budgetBand ?? "";
+  const guestChoice = form.guestBand ?? "";
+
   return (
     <div className="min-h-dvh flex items-center justify-center relative" style={{ background: "linear-gradient(135deg, #fdf2f4 0%, #fefdf0 50%, #fdf8f0 100%)" }}>
       <Backdrop />
@@ -388,7 +417,7 @@ function OnboardingScreen({ cities, onComplete }: { cities: CityInfo[]; onComple
         </div>
 
         <div className="flex items-center justify-center gap-2 mb-8">
-          {[0, 1, 2, 3].map((i) => (
+          {[0, 1, 2, 3, 4].map((i) => (
             <div key={i} className="h-1 rounded-full transition-all duration-300"
               style={{ width: i <= step ? 48 : 24, background: i <= step ? "#a8213b" : "#f5c6d0" }} />
           ))}
@@ -399,7 +428,7 @@ function OnboardingScreen({ cities, onComplete }: { cities: CityInfo[]; onComple
             <div className="space-y-5">
               <div>
                 <h2 className="text-2xl font-medium text-gray-800 mb-1">Welcome! Who's getting married?</h2>
-                <p className="text-sm text-gray-400">No account needed — we'll remember you here.</p>
+                <p className="text-sm text-gray-400">Saved under your mobile number, so you won't have to enter this again.</p>
               </div>
               <div className="space-y-3">
                 {(["name", "partnerName"] as const).map((k, i) => (
@@ -423,15 +452,41 @@ function OnboardingScreen({ cities, onComplete }: { cities: CityInfo[]; onComple
               </div>
               <div className="space-y-3">
                 <div>
-                  <label className="text-xs font-medium uppercase tracking-wider" style={{ color: "#a8213b" }}>Wedding Date</label>
-                  <input type="date" min={isoDate(new Date())} className="mt-1 w-full rounded-xl px-4 py-3 text-sm focus:outline-none" style={INPUT_STYLE}
-                    value={form.date ?? ""} onChange={(e) => set("date", e.target.value)} />
+                  <label className="text-xs font-medium uppercase tracking-wider" style={{ color: "#a8213b" }}>Wedding date</label>
+                  <div className="mt-1 space-y-2">
+                    <ChoiceRow label="How sure are you of the date?" value={form.dateMode} onChange={chooseDateMode}
+                      options={[["exact", "Exact date"], ["month", "Just the month"], ["unsure", "Not sure yet"]]} />
+                    {form.dateMode === "exact" && (
+                      <input type="date" min={isoDate(new Date())} aria-label="Wedding date" className="w-full rounded-xl px-4 py-3 text-base focus:outline-none" style={INPUT_STYLE}
+                        value={form.date ?? ""} onChange={(e) => set("date", e.target.value)} />
+                    )}
+                    {form.dateMode === "month" && (
+                      <select aria-label="Wedding month" value={form.date ?? ""} onChange={(e) => set("date", e.target.value)} className="w-full rounded-xl px-4 py-3 text-base focus:outline-none" style={INPUT_STYLE}>
+                        <option value="">Choose the month</option>
+                        {monthOptions.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+                      </select>
+                    )}
+                    {form.dateMode === "unsure" && <p className="text-sm text-gray-700">No problem. We'll plan around a date about six months away, and you can set the real one any time.</p>}
+                  </div>
                 </div>
                 <div>
                   <label className="text-xs font-medium uppercase tracking-wider" style={{ color: "#a8213b" }}>City</label>
-                  <CityDropdown cities={cities} value={form.location ?? ""} onChange={(c) => set("location", c)} />
+                  <CityDropdown cities={cities} value={form.location ?? ""} onChange={pickCity} />
+                  {form.state && <div className="text-sm text-gray-700 mt-1.5">State: <span className="font-medium">{form.state}</span></div>}
                 </div>
-                <RitualPicker selected={rituals} onToggle={toggleRitual} onClear={clearRituals} />
+                <div>
+                  <label className="text-xs font-medium uppercase tracking-wider" style={{ color: "#a8213b" }}>How far will you look for vendors?</label>
+                  <select aria-label="Search radius" value={form.radiusKm ?? ""} onChange={(e) => setForm((f) => ({ ...f, radiusKm: e.target.value ? Number(e.target.value) : null }))}
+                    className="mt-1 w-full rounded-xl px-4 py-3 text-base focus:outline-none" style={INPUT_STYLE}>
+                    <option value="">Not sure yet</option>
+                    {[10, 25, 50, 100].map((k) => <option key={k} value={k}>Within {k} km of the city centre</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-medium uppercase tracking-wider block mb-1" style={{ color: "#a8213b" }}>Will the ceremony and reception be in the same place?</label>
+                  <ChoiceRow label="Same venue" value={form.sameVenue} onChange={(v) => setForm((f) => ({ ...f, sameVenue: v }))}
+                    options={[["yes", "Yes"], ["no", "No"], ["unsure", "Not sure yet"]]} />
+                </div>                <RitualPicker selected={rituals} onToggle={toggleRitual} onClear={clearRituals} />
               </div>
               <div className="flex gap-3">
                 <button className="flex-1 rounded-xl py-3 font-medium text-sm" style={{ border: "1px solid #f5c6d0", color: "#a8213b" }} onClick={() => setStep(0)}>Back</button>
@@ -445,7 +500,7 @@ function OnboardingScreen({ cities, onComplete }: { cities: CityInfo[]; onComple
             <div className="space-y-5">
               <div>
                 <h2 className="text-2xl font-medium text-gray-800 mb-1">Which event on which day?</h2>
-                <p className="text-sm text-gray-400">Pick the dates first, then tap the events that happen on each day. Your wedding date is {form.date ? formatDay(form.date) : "not set"}.</p>
+                <p className="text-sm text-gray-400">Pick the dates first, then tap the events that happen on each day. {form.dateMode === "exact" && form.date ? `Your wedding date is ${formatDay(form.date)}.` : "These dates are placeholders until you set the real wedding date. You can change them any time."}</p>
               </div>
               <ScheduleBuilder rituals={rituals} days={days} onChange={(d) => setForm((f) => ({ ...f, schedule: d }))} />
               {dayMessage && <div className="text-sm font-medium" style={{ color: "#a8213b" }}>{dayMessage}</div>}
@@ -461,35 +516,86 @@ function OnboardingScreen({ cities, onComplete }: { cities: CityInfo[]; onComple
             <div className="space-y-5">
               <div>
                 <h2 className="text-2xl font-medium text-gray-800 mb-1">Budget and guests</h2>
-                <p className="text-sm text-gray-400">Our AI will split your budget across your events and categories.</p>
+                <p className="text-sm text-gray-600">Pick a range if you're not sure of the exact numbers. You can fine-tune both later.</p>
               </div>
               <div>
-                <label className="text-xs font-medium uppercase tracking-wider" style={{ color: "#a8213b" }}>Expected Guests</label>
-                <input type="number" className="mt-1 w-full rounded-xl px-4 py-3 text-sm focus:outline-none" style={INPUT_STYLE}
-                  placeholder="e.g. 300" value={form.guestCount ?? ""} onChange={(e) => set("guestCount", Number(e.target.value))} />
+                <label className="text-xs font-medium uppercase tracking-wider" style={{ color: "#a8213b" }}>Total budget</label>
+                <select aria-label="Budget range" value={budgetChoice} className="mt-1 w-full rounded-xl px-4 py-3 text-base focus:outline-none" style={INPUT_STYLE}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    const band = BUDGET_BANDS.find((b) => b.label === v);
+                    setForm((f) => ({ ...f, budgetBand: v || undefined, budget: band ? band.value : undefined }));
+                  }}>
+                  <option value="">Select a range</option>
+                  {BUDGET_BANDS.map((b) => <option key={b.label} value={b.label}>{b.label}</option>)}
+                  <option value="exact">I know the exact amount</option>
+                </select>
+                {(budgetChoice === "exact" || budgetChoice === BUDGET_BANDS[BUDGET_BANDS.length - 1].label) && (
+                  <input type="number" inputMode="numeric" aria-label="Budget amount in rupees" className="mt-2 w-full rounded-xl px-4 py-3 text-base focus:outline-none" style={INPUT_STYLE}
+                    placeholder={budgetChoice === "exact" ? "Amount in ₹, e.g. 2500000" : "Roughly how much? Optional, e.g. 7500000"}
+                    value={budgetChoice === "exact" || (form.budget ?? 0) !== BUDGET_BANDS[BUDGET_BANDS.length - 1].value ? (form.budget ?? "") : ""}
+                    onChange={(e) => setForm((f) => ({ ...f, budget: e.target.value ? Number(e.target.value) : (budgetChoice === "exact" ? undefined : BUDGET_BANDS[BUDGET_BANDS.length - 1].value) }))} />
+                )}
+                {form.budget ? <p className="text-sm text-gray-700 mt-1.5">We'll plan around <span className="font-medium">{inr(form.budget)}</span>.</p> : null}
               </div>
               <div>
-                <label className="text-xs font-medium uppercase tracking-wider" style={{ color: "#a8213b" }}>Total Budget (INR ₹)</label>
-                <input type="number" className="mt-1 w-full rounded-xl px-4 py-3 text-sm focus:outline-none" style={INPUT_STYLE}
-                  placeholder="e.g. 2500000" value={form.budget ?? ""} onChange={(e) => set("budget", Number(e.target.value))} />
-                <div className="flex flex-wrap gap-2 mt-3">
-                  {[["₹5,00,000", 500000], ["₹10,00,000", 1000000], ["₹25,00,000", 2500000], ["₹50,00,000", 5000000]].map(([label, val]) => (
-                    <button key={String(label)} className="text-xs px-3 py-1.5 rounded-lg"
-                      style={{ background: "#fdf2f4", color: "#a8213b", border: "1px solid #f5c6d0" }}
-                      onClick={() => set("budget", val as number)}>{label}</button>
-                  ))}
-                </div>
+                <label className="text-xs font-medium uppercase tracking-wider" style={{ color: "#a8213b" }}>Expected guests</label>
+                <select aria-label="Guest range" value={guestChoice} className="mt-1 w-full rounded-xl px-4 py-3 text-base focus:outline-none" style={INPUT_STYLE}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    const band = GUEST_BANDS.find((b) => b.label === v);
+                    setForm((f) => ({ ...f, guestBand: v || undefined, guestCount: band ? band.value : v === "unsure" ? GUESTS_UNSURE : undefined }));
+                  }}>
+                  <option value="">Select a range</option>
+                  {GUEST_BANDS.map((b) => <option key={b.label} value={b.label}>{b.label}</option>)}
+                  <option value="unsure">Not sure yet</option>
+                  <option value="exact">I know the exact number</option>
+                </select>
+                {guestChoice === "exact" && (
+                  <input type="number" inputMode="numeric" aria-label="Number of guests" className="mt-2 w-full rounded-xl px-4 py-3 text-base focus:outline-none" style={INPUT_STYLE}
+                    placeholder="e.g. 300" value={form.guestCount ?? ""} onChange={(e) => setForm((f) => ({ ...f, guestCount: e.target.value ? Number(e.target.value) : undefined }))} />
+                )}
+                {form.guestCount ? <p className="text-sm text-gray-700 mt-1.5">We'll plan for about <span className="font-medium">{form.guestCount}</span> guests{guestChoice === "unsure" ? " until you know more" : ""}.</p> : null}
               </div>
-              <CreativeDirectorChoice value={form.creativeDirector} onChange={(v) => setForm((f) => ({ ...f, creativeDirector: v }))} />
               <div className="flex gap-3">
                 <button className="flex-1 rounded-xl py-3 font-medium text-sm" style={{ border: "1px solid #f5c6d0", color: "#a8213b" }} onClick={() => setStep(2)}>Back</button>
-                <button className="flex-[2] text-white rounded-xl py-3 font-medium text-sm disabled:opacity-40 sparkle-btn" style={PRIMARY_BTN}
-                  disabled={!form.budget || !form.guestCount || form.creativeDirector === undefined}
-                  onClick={() => onComplete({ ...form, schedule: finalizeSchedule(days) } as WeddingPlan)}>Shubh Aarambh ✨</button>
+                <button className="flex-[2] text-white rounded-xl py-3 font-medium text-sm disabled:opacity-40" style={PRIMARY_BTN}
+                  disabled={!form.budget || !form.guestCount} onClick={() => setStep(4)}>Continue →</button>
               </div>
             </div>
           )}
-        </div>
+
+          {step === 4 && (
+            <div className="space-y-5">
+              <div>
+                <h2 className="text-2xl font-medium text-gray-800 mb-1">What's your wedding style?</h2>
+                <p className="text-sm text-gray-600">Pick up to three that feel like you. <span className="font-medium">{(form.styles ?? []).length} of 3 chosen.</span></p>
+              </div>
+              <div className="grid grid-cols-2 gap-2.5">
+                {WEDDING_STYLES.map((s) => {
+                  const chosen = (form.styles ?? []).includes(s.name);
+                  const full = (form.styles ?? []).length >= 3 && !chosen;
+                  return (
+                    <button key={s.name} type="button" aria-pressed={chosen} disabled={full}
+                      onClick={() => setForm((f) => ({ ...f, styles: chosen ? (f.styles ?? []).filter((x) => x !== s.name) : [...(f.styles ?? []), s.name] }))}
+                      className="rounded-xl p-3 text-left transition-all min-h-[5.5rem] disabled:opacity-45" style={chosen ? CHIP_ON : CHIP_OFF}>
+                      <div className="text-xl" aria-hidden="true">{s.icon}</div>
+                      <div className="text-sm font-semibold leading-tight mt-1">{chosen ? "✓ " : ""}{s.name}</div>
+                      <div className="text-xs leading-snug mt-0.5" style={{ opacity: 0.9 }}>{s.blurb}</div>
+                    </button>
+                  );
+                })}
+              </div>
+              <button type="button" onClick={() => setForm((f) => ({ ...f, styles: [] }))} className="text-sm underline text-gray-800 min-h-11">Not sure yet, I'll decide later</button>
+              <CreativeDirectorChoice value={form.creativeDirector} onChange={(v) => setForm((f) => ({ ...f, creativeDirector: v }))} />
+              <div className="flex gap-3">
+                <button className="flex-1 rounded-xl py-3 font-medium text-sm" style={{ border: "1px solid #f5c6d0", color: "#a8213b" }} onClick={() => setStep(3)}>Back</button>
+                <button className="flex-[2] text-white rounded-xl py-3 font-medium text-sm disabled:opacity-40 sparkle-btn" style={PRIMARY_BTN}
+                  disabled={form.creativeDirector === undefined}
+                  onClick={() => onComplete({ ...form, schedule: finalizeSchedule(days), dateMode: form.dateMode ?? "exact", sameVenue: form.sameVenue ?? "unsure", styles: form.styles ?? [], radiusKm: form.radiusKm ?? null } as WeddingPlan)}>Shubh Aarambh ✨</button>
+              </div>
+            </div>
+          )}        </div>
       </div>
     </div>
   );
@@ -541,7 +647,7 @@ function PoweredBy({ className = "" }: { className?: string }) {
   );
 }
 
-function Sidebar({ tab, setTab, plan, unreadCount, onReset }: { tab: Tab; setTab: (t: Tab) => void; plan: WeddingPlan; unreadCount: number; onReset: () => void }) {
+function Sidebar({ tab, setTab, plan, unreadCount, onReset, onLogout, phone }: { tab: Tab; setTab: (t: Tab) => void; plan: WeddingPlan; unreadCount: number; onReset: () => void; onLogout: () => void; phone: string }) {
   const daysLeft = useMemo(() => Math.max(0, Math.ceil((new Date(plan.date).getTime() - Date.now()) / 86400000)), [plan.date]);
   return (
     <aside className="w-60 shrink-0 flex flex-col h-screen sticky top-0" style={{ background: "#fff", borderRight: "1px solid #fbe8ec" }}>
@@ -565,7 +671,7 @@ function Sidebar({ tab, setTab, plan, unreadCount, onReset }: { tab: Tab; setTab
         <div className="text-xs mt-0.5" style={{ color: "#c08a0c" }}>{plan.location}</div>
         <div className="mt-2 flex items-center gap-1">
           <span className="text-lg font-medium" style={{ color: "#a8213b" }}>{daysLeft}</span>
-          <span className="text-xs text-gray-400">days to go</span>
+          <span className="text-xs text-gray-400">{isTentative(plan) ? "days to go (approx.)" : "days to go"}</span>
         </div>
       </div>
 
@@ -600,10 +706,14 @@ function Sidebar({ tab, setTab, plan, unreadCount, onReset }: { tab: Tab; setTab
         ))}
       </nav>
       <div className="px-4 py-4" style={{ borderTop: "1px solid #fdf2f4" }}>
-        <div className="text-xs text-gray-400">{new Date(plan.date).toLocaleDateString("en-IN", { month: "long", day: "numeric", year: "numeric" })}</div>
+        <div className="text-xs text-gray-400">{isTentative(plan) || plan.dateMode === "unsure" ? dateLabel(plan) : new Date(plan.date).toLocaleDateString("en-IN", { month: "long", day: "numeric", year: "numeric" })}</div>
         <div className="text-xs mt-0.5" style={{ color: "#c08a0c" }}>{plan.guestCount} guests · {inr(plan.budget)}</div>
         <PoweredBy className="mt-4" />
-        <button onClick={onReset} className="mt-3 text-xs text-gray-600 underline min-h-8">↺ Start over</button>
+        <div className="mt-3 text-xs text-gray-700">Signed in · {prettyPhone(phone)}</div>
+        <div className="flex gap-4">
+          <button onClick={onLogout} className="text-xs text-gray-800 underline min-h-8">Log out</button>
+          <button onClick={onReset} className="text-xs text-gray-600 underline min-h-8">↺ Start over</button>
+        </div>
       </div>
     </aside>
   );
@@ -648,6 +758,7 @@ function DashboardTab({ plan, allocation, bookings, checklistDone, onToggleCheck
   setTab: (t: Tab) => void; onEditPlan: (p: WeddingPlan) => void; onMessage: (v: VendorRef) => void;
 }) {
   const [editing, setEditing] = useState(false);
+  const [settingDate, setSettingDate] = useState(false);
 
   const spent = useMemo(() => {
     const r = {} as BudgetAllocation;
@@ -667,12 +778,19 @@ function DashboardTab({ plan, allocation, bookings, checklistDone, onToggleCheck
         <p className="text-sm text-gray-600 mt-1">Here's where your shaadi stands today. Tick off what you've finished, and the agent works on the rest.</p>
       </div>
 
+      {isTentative(plan) && (
+        <div className="rounded-xl p-3 sm:p-4 flex items-center justify-between gap-3 flex-wrap" style={{ background: "#fffdf0", border: "1px solid #fbf0a1" }}>
+          <span className="text-sm text-gray-800">{plan.dateMode === "unsure" ? "You haven't set a wedding date yet, so we're planning around a date about six months away." : `You're planning for ${monthYear(plan.date)}. Set the exact date when you know it.`}</span>
+          <button onClick={() => setSettingDate(true)} className="rounded-lg px-4 py-2.5 text-sm font-medium min-h-11" style={{ color: "#a8213b", border: "1px solid #a8213b", background: "#fff" }}>📅 Set the exact date</button>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         {[
           { label: "Total Budget",  value: inr(plan.budget),              sub: "set by you",                color: "#a8213b" },
           { label: "Spent So Far",  value: inr(totalSpent),               sub: `${Math.round((totalSpent/plan.budget)*100)}% of budget`, color: "#881a30" },
           { label: "Remaining",     value: inr(plan.budget - totalSpent), sub: "to allocate",               color: "#c08a0c" },
-          { label: "Days Left",     value: String(Math.max(0, Math.ceil((new Date(plan.date).getTime() - Date.now()) / 86400000))), sub: "until the big day", color: "#c93a52" },
+          { label: "Days Left",     value: String(Math.max(0, Math.ceil((new Date(plan.date).getTime() - Date.now()) / 86400000))), sub: isTentative(plan) ? "approx., date not final" : "until the big day", color: "#c93a52" },
         ].map((s) => (
           <div key={s.label} className="bg-white rounded-2xl p-4 sm:p-5 min-w-0" style={{ border: "1px solid #fbe8ec" }}>
             <div className="text-xs text-gray-600 mb-1">{s.label}</div>
@@ -731,6 +849,15 @@ function DashboardTab({ plan, allocation, bookings, checklistDone, onToggleCheck
             <div className="mt-5 pt-4 text-sm text-gray-700" style={{ borderTop: "1px solid #fbe8ec" }}>
               🎨 Creative director: <span className="font-medium">{plan.creativeDirector ? "Yes, we'll help you find one" : "Not needed, you'll manage the look yourself"}</span>
             </div>
+            {(plan.styles?.length ?? 0) > 0 && (
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-gray-700">
+                <span>✨ Style:</span>
+                {plan.styles!.map((s) => <span key={s} className="px-3 py-1 rounded-full" style={{ background: "#fdf2f4", color: "#a8213b", border: "1px solid #f5c6d0" }}>{s}</span>)}
+              </div>
+            )}
+            {plan.sameVenue && plan.sameVenue !== "unsure" && (
+              <div className="mt-2 text-sm text-gray-700">📍 Ceremony and reception: <span className="font-medium">{plan.sameVenue === "yes" ? "same venue" : "separate venues"}</span></div>
+            )}
           </div>
         </div>
 
@@ -763,6 +890,28 @@ function DashboardTab({ plan, allocation, bookings, checklistDone, onToggleCheck
       {editing && (
         <EditEventsModal plan={plan} onClose={() => setEditing(false)} onSave={(p) => { onEditPlan(p); setEditing(false); }} />
       )}
+      {settingDate && (
+        <SetDateModal plan={plan} onClose={() => setSettingDate(false)} onSave={(p) => { onEditPlan(p); setSettingDate(false); }} />
+      )}
+    </div>
+  );
+}
+
+// Turn a working date into the real one. Every event day moves by the same number of days.
+function SetDateModal({ plan, onSave, onClose }: { plan: WeddingPlan; onSave: (p: WeddingPlan) => void; onClose: () => void }) {
+  const [date, setDate] = useState("");
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4" style={{ background: "rgba(0,0,0,0.45)" }} onClick={onClose}>
+      <div className="w-full max-w-md rounded-t-3xl sm:rounded-3xl bg-white p-5 sm:p-7 space-y-4" style={{ borderTop: "3px solid #c08a0c", paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom))" }} onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-2xl font-medium text-gray-800">Set your wedding date</h3>
+        <p className="text-sm text-gray-700">Your event days, payment due dates and countdown will all move to match.</p>
+        <input type="date" min={isoDate(new Date())} value={date} onChange={(e) => setDate(e.target.value)} aria-label="Wedding date" className="w-full rounded-xl px-4 py-3 text-base focus:outline-none" style={INPUT_STYLE} />
+        <div className="flex gap-3">
+          <button onClick={onClose} className="flex-1 rounded-xl py-3 font-medium text-sm" style={{ border: "1px solid #f5c6d0", color: "#a8213b" }}>Cancel</button>
+          <button disabled={!date} className="flex-[2] text-white rounded-xl py-3 font-medium text-sm disabled:opacity-40" style={PRIMARY_BTN}
+            onClick={() => { const delta = daysBetween(plan.date, date); onSave({ ...plan, date, dateMode: "exact", schedule: plan.schedule.map((d) => ({ ...d, date: addDays(d.date, delta) })) }); }}>Save date</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1264,6 +1413,7 @@ function VendorsTab({ plan, cities, city, setCity, bookings, onToggleBook, onMes
   const [activeCategory, setActiveCategory] = useState<Category | "all">("all");
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<VendorSort>("score");
+  const [radius, setRadius] = useState<number>(plan.radiusKm ?? 0); // 0 = any distance
   const [saved, setSaved] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<MarketVendor | null>(null);
   const [vendors, setVendors] = useState<MarketVendor[]>([]);
@@ -1287,6 +1437,7 @@ function VendorsTab({ plan, cities, city, setCity, bookings, onToggleBook, onMes
     const q = search.trim().toLowerCase();
     const rows = vendors.filter((v) =>
       (activeCategory === "all" || v.category === activeCategory) &&
+      (!radius || v.distanceKm <= radius) &&
       (!q || v.name.toLowerCase().includes(q) || v.area.toLowerCase().includes(q)));
     const by: Record<VendorSort, (a: MarketVendor, b: MarketVendor) => number> = {
       score: (a, b) => (b.partnerScore ?? 0) - (a.partnerScore ?? 0),
@@ -1294,7 +1445,7 @@ function VendorsTab({ plan, cities, city, setCity, bookings, onToggleBook, onMes
       distance: (a, b) => a.distanceKm - b.distanceKm,
     };
     return [...rows].sort(by[sort]);
-  }, [vendors, activeCategory, search, sort]);
+  }, [vendors, activeCategory, search, sort, radius]);
 
   const toggle = (id: string) => setSaved((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
@@ -1327,6 +1478,13 @@ function VendorsTab({ plan, cities, city, setCity, bookings, onToggleBook, onMes
           <input className="w-full pl-8 pr-4 py-3 sm:py-2.5 bg-white rounded-xl text-sm focus:outline-none" style={{ border: "1px solid #fbe8ec" }}
             placeholder={`Search vendors or areas in ${city || "your city"}…`} value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
+        <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+          Within
+          <select value={radius} onChange={(e) => setRadius(Number(e.target.value))} className="rounded-xl px-3 py-2.5 bg-white text-sm focus:outline-none" style={{ border: "1px solid #fbe8ec" }}>
+            <option value={0}>Any distance</option>
+            {[10, 25, 50, 100].map((k) => <option key={k} value={k}>{k} km</option>)}
+          </select>
+        </label>
         <label className="inline-flex items-center gap-2 text-sm text-gray-700">
           Sort by
           <select value={sort} onChange={(e) => setSort(e.target.value as VendorSort)} className="rounded-xl px-3 py-2.5 bg-white text-sm focus:outline-none" style={{ border: "1px solid #fbe8ec" }}>
@@ -1433,7 +1591,7 @@ function MessagesTab({ plan, threads, setThreads, activeId, setActiveId, onNavig
 
   const send = () => {
     if (!active || !draft.trim()) return;
-    const msg: ChatMessage = { id: String(Date.now()), from: "me", text: draft.trim(), time: now() };
+    const msg: ChatMessage = { id: String(Date.now()), from: "me", text: draft.trim(), time: now(), ts: Date.now() };
     setThreads(threads.map((t) => t.id === active.id ? { ...t, messages: [...t.messages, msg], lastTime: "Just now", unread: false, draft: undefined } : t));
     setDraft("");
   };
@@ -1589,10 +1747,13 @@ interface AgentResult {
 interface AgentState { objective: string; result: AgentResult | null; applied: boolean; }
 
 function defaultObjective(plan: WeddingPlan) {
-  const when = new Date(plan.date).toLocaleDateString("en-IN", { month: "long", year: "numeric" });
-  return `I have ${inr(plan.budget)}. ${plan.guestCount} guests. ${plan.location}. Wedding in ${when}. I want a premium-looking wedding but don't want to exceed my budget.`;
+  const when = plan.dateMode === "unsure" ? "a date still to be decided" : new Date(plan.date).toLocaleDateString("en-IN", { month: "long", year: "numeric" });
+  const budget = plan.budgetBand && plan.budgetBand !== "exact" ? `${plan.budgetBand}, so about ${inr(plan.budget)}` : inr(plan.budget);
+  const look = plan.styles?.length
+    ? `I'd like a ${plan.styles.map((s) => s.toLowerCase()).join(", ")} wedding with a premium look.`
+    : "I want a premium-looking wedding.";
+  return `My budget is ${budget}. About ${plan.guestCount} guests. ${plan.location}. Wedding in ${when}. ${look} I don't want to exceed my budget.`;
 }
-
 const STATUS_STYLE: Record<AgentEvent["status"], { icon: string; color: string; bg: string }> = {
   done:    { icon: "✓", color: "#2f6b1f", bg: "#f3faf0" },
   warn:    { icon: "!", color: "#a8213b", bg: "#fdf2f4" },
@@ -1844,12 +2005,12 @@ function MobileTopBar({ plan }: { plan: WeddingPlan }) {
         <div className="w-7 h-7 rounded-full flex items-center justify-center" style={{ background: "#a8213b" }}><span className="text-white text-xs font-bold">P</span></div>
         <span className="text-lg font-medium" style={{ color: "#a8213b" }}>Partnered</span>
       </div>
-      <div className="text-sm text-gray-800"><span className="font-semibold" style={{ color: "#a8213b" }}>{daysLeft}</span> days to go</div>
+      <div className="text-sm text-gray-800"><span className="font-semibold" style={{ color: "#a8213b" }}>{isTentative(plan) ? "~" : ""}{daysLeft}</span> days to go</div>
     </header>
   );
 }
 
-function MobileTabBar({ tab, setTab, plan, unreadCount, onReset }: { tab: Tab; setTab: (t: Tab) => void; plan: WeddingPlan; unreadCount: number; onReset: () => void }) {
+function MobileTabBar({ tab, setTab, plan, unreadCount, onReset, onLogout, phone }: { tab: Tab; setTab: (t: Tab) => void; plan: WeddingPlan; unreadCount: number; onReset: () => void; onLogout: () => void; phone: string }) {
   const [more, setMore] = useState(false);
   const moreActive = NAV_SECTIONS.some(([, items]) => items.some((n) => n.id === tab));
   const item = (active: boolean) => ({ color: active ? "#a8213b" : "#1a1a1a", borderTop: `3px solid ${active ? "#a8213b" : "transparent"}` });
@@ -1881,7 +2042,7 @@ function MobileTabBar({ tab, setTab, plan, unreadCount, onReset }: { tab: Tab; s
             </div>
             <div className="rounded-2xl p-4" style={{ background: "linear-gradient(135deg, #fdf2f4, #fefdf0)", border: "1px solid #f5c6d0" }}>
               <div className="text-base font-medium text-gray-800">{plan.name} & {plan.partnerName}</div>
-              <div className="text-sm text-gray-700">{plan.location} · {new Date(plan.date).toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })}</div>
+              <div className="text-sm text-gray-700">{plan.location} · {isTentative(plan) ? dateLabel(plan) : new Date(plan.date).toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })}</div>
               <div className="text-sm text-gray-700">{plan.guestCount} guests · {inr(plan.budget)}</div>
             </div>
             {NAV_SECTIONS.map(([title, items]) => (
@@ -1898,7 +2059,11 @@ function MobileTabBar({ tab, setTab, plan, unreadCount, onReset }: { tab: Tab; s
               </div>
             ))}
             <PoweredBy />
-            <button onClick={() => { setMore(false); onReset(); }} className="text-sm text-gray-700 underline min-h-11">↺ Start over</button>
+            <div className="text-sm text-gray-700">Signed in · {prettyPhone(phone)}</div>
+            <div className="flex gap-6">
+              <button onClick={() => { setMore(false); onLogout(); }} className="text-sm text-gray-800 underline min-h-11">Log out</button>
+              <button onClick={() => { setMore(false); onReset(); }} className="text-sm text-gray-700 underline min-h-11">↺ Start over</button>
+            </div>
           </div>
         </div>
       )}    </>
@@ -1931,9 +2096,10 @@ interface SavedState {
   agent: AgentState; payments: Payment[]; guests: Guest[]; deliveries: Delivery[]; checklist: string[];
 }
 
-export default function App() {
-  // The couple's work is kept in this browser, so a refresh does not send them back to the start.
-  const [saved] = useState(() => loadSaved<SavedState>());
+function CoupleApp({ session, onLogout, onSwitchRole }: { session: Session; onLogout: () => void; onSwitchRole: () => void }) {
+  const phone = session.phone;
+  // The couple's work is kept in this browser under their mobile number, so signing in again brings it back.
+  const [saved] = useState(() => loadSaved<SavedState>(phone));
   const [plan, setPlan] = useState<WeddingPlan | null>(saved.plan ?? null);
   const [tab, setTab] = useState<Tab>(saved.tab ?? "dashboard");
   const [allocation, setAllocation] = useState<BudgetAllocation>(saved.allocation ?? ({} as BudgetAllocation));
@@ -1973,12 +2139,49 @@ export default function App() {
 
   useEffect(() => {
     if (!plan) return;
-    save({ plan, tab, allocation, threads, activeThreadId, bookings, agent, payments, guests, deliveries, checklist: [...checklistDone] } satisfies SavedState);
-  }, [plan, tab, allocation, threads, activeThreadId, bookings, agent, payments, guests, deliveries, checklistDone]);
+    save(phone, { plan, tab, allocation, threads, activeThreadId, bookings, agent, payments, guests, deliveries, checklist: [...checklistDone] } satisfies SavedState);
+  }, [phone, plan, tab, allocation, threads, activeThreadId, bookings, agent, payments, guests, deliveries, checklistDone]);
+
+  // Conversations with messages go to the shared inbox, where the vendor desk can read and answer them.
+  useEffect(() => {
+    if (!plan) return;
+    threads.filter((t) => t.vendor && t.messages.length).forEach((t) => upsertConversation({
+      id: `${phone}|${t.id}`, threadId: t.id, couplePhone: phone,
+      couple: { names: `${plan.name} & ${plan.partnerName}`, city: plan.location, date: plan.date, guests: plan.guestCount },
+      vendor: { ...t.vendor!, estCost: t.vendor!.estCost }, messages: t.messages,
+    }));
+  }, [threads, plan, phone]);
+
+  const activeThreadRef = useRef(activeThreadId);
+  activeThreadRef.current = activeThreadId;
+  useEffect(() => {
+    const pull = () => {
+      const inbox = readInbox();
+      setThreads((ts) => {
+        let changed = false;
+        const next = ts.map((t) => {
+          const c = inbox[`${phone}|${t.id}`];
+          if (!c) return t;
+          const have = new Set(t.messages.map((m) => m.id));
+          const add = c.messages.filter((m) => !have.has(m.id));
+          if (!add.length) return t;
+          changed = true;
+          const fromVendor = add.some((m) => m.from === "vendor");
+          return { ...t, messages: [...t.messages, ...add].sort((a, b) => (a.ts ?? 0) - (b.ts ?? 0)), lastTime: "Just now", unread: fromVendor && activeThreadRef.current !== t.id ? true : t.unread };
+        });
+        return changed ? next : ts;
+      });
+    };
+    pull();
+    const onStorage = (e: StorageEvent) => { if (e.key === INBOX_KEY) pull(); };
+    window.addEventListener("storage", onStorage);
+    const timer = window.setInterval(pull, 3000);
+    return () => { window.removeEventListener("storage", onStorage); window.clearInterval(timer); };
+  }, [phone]);
 
   const startOver = () => {
     if (!window.confirm("Start over? This clears your plan, bookings, payments, guests, deliveries and messages from this browser.")) return;
-    clearSaved();
+    clearSaved(phone);
     setPlan(null); setTab("dashboard"); setAllocation({} as BudgetAllocation); setThreads([]); setActiveThreadId("");
     setBookings([]); setAgent({ objective: "", result: null, applied: false }); setPayments([]); setGuests([]); setDeliveries([]); setChecklistDone(new Set());
   };
@@ -2027,7 +2230,7 @@ export default function App() {
     <div className="flex h-dvh overflow-hidden relative" style={{ background: "#fdf8f0" }}>
       <Backdrop />
       <div className="relative hidden lg:flex" style={{ zIndex: 10 }}>
-        <Sidebar tab={tab} setTab={setTab} plan={plan} unreadCount={unreadCount} onReset={startOver} />
+        <Sidebar tab={tab} setTab={setTab} plan={plan} unreadCount={unreadCount} onReset={startOver} onLogout={onLogout} phone={phone} />
       </div>
       <div className="flex-1 min-w-0 flex flex-col relative" style={{ zIndex: 10 }}>
       <MobileTopBar plan={plan} />
@@ -2043,8 +2246,32 @@ export default function App() {
         {tab === "guests"     && <GuestsTab plan={plan} guests={guests} setGuests={setGuests} onGuestCount={(n) => setPlan({ ...plan, guestCount: n })} />}
         {tab === "deliveries" && <DeliveriesTab plan={plan} bookings={bookings} deliveries={deliveries} setDeliveries={setDeliveries} />}
       </main>
-      <MobileTabBar tab={tab} setTab={setTab} plan={plan} unreadCount={unreadCount} onReset={startOver} />
+      <MobileTabBar tab={tab} setTab={setTab} plan={plan} unreadCount={unreadCount} onReset={startOver} onLogout={onLogout} phone={phone} />
       </div>
     </div>
   );
+}
+
+// ─── Sign-in and the two sides of the app ────────────────────────────────────
+
+// #vendor opens the vendor desk, so one browser can hold both: a couple in one tab, a vendor in another.
+const roleFromHash = (): Role => (window.location.hash === "#vendor" ? "vendor" : "couple");
+
+export default function App() {
+  const [role, setRole] = useState<Role>(roleFromHash);
+  const [sessions, setSessions] = useState<Record<Role, Session | null>>(() => ({ couple: getSession("couple"), vendor: getSession("vendor") }));
+  useEffect(() => {
+    const onHash = () => setRole(roleFromHash());
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+
+  const switchRole = () => { window.location.hash = role === "couple" ? "#vendor" : ""; setRole(role === "couple" ? "vendor" : "couple"); };
+  const login = (s: Session) => { setSession(role, s); setSessions((x) => ({ ...x, [role]: s })); };
+  const logout = () => { clearSession(role); setSessions((x) => ({ ...x, [role]: null })); };
+
+  const session = sessions[role];
+  if (!session) return <LoginScreen key={role} role={role} onLogin={login} onSwitchRole={switchRole} />;
+  if (role === "vendor") return <VendorDesk session={session} onLogout={logout} onSwitchRole={switchRole} />;
+  return <CoupleApp key={session.phone} session={session} onLogout={logout} onSwitchRole={switchRole} />;
 }

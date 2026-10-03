@@ -42,6 +42,25 @@ class PlanIn(BaseModel):
     rituals: list[str] = []
     schedule: list[ScheduleDay] = []
     creativeDirector: bool = False
+    # From the longer onboarding (all optional)
+    styles: list[str] = []
+    sameVenue: str | None = None      # "yes", "no" or "unsure"
+    radiusKm: int | None = None
+    dateMode: str | None = None       # "exact", "month" or "unsure"
+
+# How each wedding style nudges the budget towards the categories that make it look and feel that way.
+STYLE_BOOST = {
+    "Traditional & classic": {"attire": 1.10, "catering": 1.05, "music": 1.05},
+    "Modern & contemporary": {"photography": 1.10, "music": 1.10},
+    "Royal & palace": {"hotels": 1.20, "decoration": 1.20, "attire": 1.10},
+    "Vintage & heritage": {"hotels": 1.10, "decoration": 1.10},
+    "Rustic & garden": {"decoration": 1.10, "hotels": 1.05},
+    "Minimal & intimate": {"decoration": 0.85, "hotels": 0.90, "catering": 1.10},
+    "Ethnic & regional": {"attire": 1.10, "music": 1.10},
+    "Themed": {"decoration": 1.20, "music": 1.05},
+    "Destination": {"hotels": 1.20, "transport": 1.20, "logistics": 1.15},
+    "Glamorous & luxe": {"decoration": 1.25, "photography": 1.15, "hotels": 1.10},
+}
 
 
 class RunIn(BaseModel):
@@ -127,7 +146,7 @@ def read_preferences(objective: str) -> tuple[dict, bool]:
 
 # ── Step 2: category allocation ──────────────────────────────────────────────────
 
-def allocate(allocatable: int, prefs: dict, guests: int, creative_director: bool) -> dict[str, int]:
+def allocate(allocatable: int, prefs: dict, guests: int, creative_director: bool, styles: list[str] | None = None, separate_venues: bool = False) -> dict[str, int]:
     w = dict(BASE_WEIGHTS)
     if guests > 400:
         w["catering"], w["attire"], w["hotels"] = 0.35, 0.12, 0.08
@@ -143,6 +162,11 @@ def allocate(allocatable: int, prefs: dict, guests: int, creative_director: bool
     w["logistics"] *= 1 - 0.2 * p
     if creative_director:
         w["decoration"] *= 1.1
+    for s in (styles or [])[:3]:
+        for c, k in STYLE_BOOST.get(s, {}).items():
+            w[c] *= k
+    if separate_venues:
+        w["hotels"] *= 1.15  # a second venue to pay for
     for c in prefs["priorities"]:
         w[c] *= 1.25
     total = sum(w.values())
@@ -219,10 +243,13 @@ def run_agent(req: RunIn):
 
     # 2. Allocation
     prefs, used_llm_prefs = read_preferences(req.objective)
-    alloc = allocate(env["allocatable"], prefs, plan.guestCount, plan.creativeDirector)
+    styles = [s for s in plan.styles if s in STYLE_BOOST][:3]
+    alloc = allocate(env["allocatable"], prefs, plan.guestCount, plan.creativeDirector, styles, plan.sameVenue == "no")
     top3 = sorted(alloc.items(), key=lambda kv: -kv[1])[:3]
     log(2, "Allocate category budgets",
         f"From your goals I read: premium look {round(prefs['premium_look'] * 100)}%, "
+        + (f"styles {', '.join(styles)}, " if styles else "")
+        + ("two separate venues, " if plan.sameVenue == "no" else "")
         + ("must stay within budget" if prefs["strict_budget"] else "some flexibility on budget")
         + ". Largest shares: " + ", ".join(f"{LABELS[c]} {inr(a)}" for c, a in top3) + ".",
         "done", {"allocation": alloc, "preferences": prefs})
@@ -230,7 +257,7 @@ def run_agent(req: RunIn):
     # 3. Search the vendor database
     skipped = [c for c in LABELS if c in req.completed]  # the couple already did these: do not touch them
     everything = vendors_in_city(plan.location)
-    pool = [v for v in everything if v["category"] not in skipped]
+    pool = [v for v in everything if v["category"] not in skipped and (not plan.radiusKm or v["distance_km"] <= plan.radiusKm)]
 
     def early_exit(detail: str, summary: str):
         log(3, "Search your vendor database", detail, "warn")
@@ -329,7 +356,8 @@ def run_agent(req: RunIn):
     # Amounts are pre-formatted so the model copies them instead of re-formatting (and getting Indian grouping wrong).
     facts = {
         "total": inr(env["total"]), "reserve": inr(env["reserve"]), "allocatable": inr(env["allocatable"]),
-        "perGuest": inr(env["perGuest"]), "feasibility": env["message"], "city": plan.location, "days": n_days,
+        "perGuest": inr(env["perGuest"]), "feasibility": env["message"], "city": plan.location, "days": n_days, "weddingStyles": styles, "ceremonyAndReceptionAtSeparateVenues": plan.sameVenue == "no",
+        "dateStillToBeSet": plan.dateMode in ("month", "unsure"),
         "topPicks": {LABELS[c]: {"name": shortlists[c][0]["name"], "estCost": inr(shortlists[c][0]["estCost"]), "fit": shortlists[c][0]["fit"]} for c in cats if shortlists.get(c)},
         "sumOfTopPicks": inr(top_costs), "topPicksFitBudget": top_costs <= env["allocatable"],
         "categoriesOverAllocation": stretch,

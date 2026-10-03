@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import { INPUT_STYLE, PRIMARY_BTN, isoDate, shortDay, uid, type Guest, type GuestGroup, type Rsvp, type WeddingPlan } from "./shared";
+import { INPUT_STYLE, PRIMARY_BTN, isoDate, normalisePhone, prettyPhone, shortDay, uid, type Guest, type GuestGroup, type Rsvp, type WeddingPlan } from "./shared";
 
 // Guest list and RSVP. The guest list lives in this browser. Contacts are read here only (nothing is uploaded),
 // and only the people the couple choose are added. Real one-tap bulk sending needs the WhatsApp Business API
@@ -15,19 +15,6 @@ const RSVP_STYLE: Record<Rsvp, { bg: string; fg: string }> = {
 // ── Reading contacts ────────────────────────────────────────────────────────────
 
 interface Candidate { id: string; name: string; phone: string; picked: boolean; }
-
-function normalisePhone(raw: string): string {
-  const digits = raw.replace(/[^\d+]/g, "");
-  const only = digits.replace(/\D/g, "");
-  if (digits.startsWith("+")) return `+${only}`;
-  if (only.length === 10) return `+91${only}`;
-  if (only.length === 11 && only.startsWith("0")) return `+91${only.slice(1)}`;
-  if (only.length === 12 && only.startsWith("91")) return `+${only}`;
-  return only ? `+${only}` : "";
-}
-function prettyPhone(p: string) {
-  return p.startsWith("+91") && p.length === 13 ? `+91 ${p.slice(3, 8)} ${p.slice(8)}` : p;
-}
 
 function parseVcf(text: string): { name: string; phone: string }[] {
   const out: { name: string; phone: string }[] = [];
