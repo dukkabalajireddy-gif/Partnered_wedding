@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CATEGORY_META, INBOX_KEY, INPUT_STYLE, PRIMARY_BTN, appendMessage, formatDay, inr, prettyPhone, readInbox, type Conversation, type Session } from "./shared";
+import { CATEGORY_META, INBOX_KEY, INPUT_STYLE, PRIMARY_BTN, appendMessage, autopilotOn, formatDay, inr, prettyPhone, readInbox, setAutopilot, type Conversation, type Quote, type Session } from "./shared";
 
 // The vendor's side of the chat, for demonstrating the platform. Whoever signs in here sees every enquiry couples
 // have sent from the couple app on this device, and replies as the vendor that was contacted.
@@ -11,6 +11,8 @@ export default function VendorDesk({ session, onLogout, onSwitchRole }: { sessio
   const [activeId, setActiveId] = useState("");
   const [view, setView] = useState<"list" | "chat">("list");
   const [draft, setDraft] = useState("");
+  const [draftQuote, setDraftQuote] = useState<{ text: string; quote: Quote } | undefined>(undefined); // attached when a quote reply is sent unchanged
+  const [auto, setAuto] = useState(autopilotOn);
   const [seen, setSeen] = useState<Record<string, number>>({}); // when each conversation was last opened here
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -33,16 +35,17 @@ export default function VendorDesk({ session, onLogout, onSwitchRole }: { sessio
   const send = () => {
     if (!active || !draft.trim()) return;
     const ts = Date.now();
-    appendMessage(active.id, { id: `v-${ts}`, from: "vendor", text: draft.trim(), time: stamp(), ts });
-    setDraft(""); setInbox(readInbox());
+    appendMessage(active.id, { id: `v-${ts}`, from: "vendor", text: draft.trim(), time: stamp(), ts, quote: draftQuote && draft.trim() === draftQuote.text ? draftQuote.quote : undefined });
+    setDraft(""); setDraftQuote(undefined); setInbox(readInbox());
   };
 
   const quote = active?.vendor.estCost ? Math.round(active.vendor.estCost / 5000) * 5000 : 0;
-  const quick = active ? [
-    quote ? `Hello! Yes, we're available on those dates. Our quote is ${inr(quote)} for your requirements. A 30% advance (${inr(Math.round(quote * 0.3))}) confirms the booking.` : "Hello! Yes, we're available on those dates. Let us send you a quote shortly.",
-    "Thank you for reaching out. Unfortunately we're already booked on those dates.",
-    "Could you share your exact guest count and venue so we can finalise the quote?",
-    "Payment received, thank you! Your booking is confirmed.",
+  const quoteText = quote ? `Hello! Yes, we're available on those dates. Our quote is ${inr(quote)} for your requirements. A 30% advance (${inr(Math.round(quote * 0.3))}) confirms the booking.` : "";
+  const quick: { text: string; quote?: Quote }[] = active ? [
+    quote ? { text: quoteText, quote: { amount: quote, advancePct: 30, validDays: 7 } } : { text: "Hello! Yes, we're available on those dates. Let us send you a quote shortly." },
+    { text: "Thank you for reaching out. Unfortunately we're already booked on those dates." },
+    { text: "Could you share your exact guest count and venue so we can finalise the quote?" },
+    { text: "Payment received, thank you! Your booking is confirmed." },
   ] : [];
 
   return (
@@ -54,6 +57,10 @@ export default function VendorDesk({ session, onLogout, onSwitchRole }: { sessio
           <div className="text-xs text-gray-700">Demo · signed in as {prettyPhone(session.phone)}</div>
         </div>
         <div className="ml-auto flex items-center gap-2">
+          <button onClick={() => { const next = !auto; setAutopilot(next); setAuto(next); }} aria-pressed={auto} title="When on, the app replies for the vendor 10 to 15 seconds after a couple writes, unless you reply first"
+            className="text-sm px-3 py-2 rounded-lg min-h-10 font-medium" style={auto ? { background: "#f3faf0", color: "#2f6b1f", border: "1px solid #9bd08a" } : { background: "#fff", color: "#444", border: "1px solid #ddd" }}>
+            Autopilot: {auto ? "On" : "Off"}
+          </button>
           <button onClick={onSwitchRole} className="text-sm px-3 py-2 rounded-lg min-h-10" style={{ color: "#a8213b", border: "1px solid #f5c6d0" }}>Couple app</button>
           <button onClick={onLogout} className="text-sm px-3 py-2 rounded-lg min-h-10 text-gray-800" style={{ border: "1px solid #ddd" }}>Log out</button>
         </div>
@@ -117,7 +124,7 @@ export default function VendorDesk({ session, onLogout, onSwitchRole }: { sessio
 
               <div className="px-3 sm:px-6 pt-2 flex gap-2 overflow-x-auto bg-white [&>button]:shrink-0" style={{ borderTop: "1px solid #fbe8ec" }}>
                 {quick.map((q, i) => (
-                  <button key={i} onClick={() => setDraft(q)} className="text-sm px-3 py-2 rounded-full whitespace-nowrap max-w-[16rem] truncate" style={{ color: "#a8213b", background: "#fdf2f4", border: "1px solid #f5c6d0" }}>{q}</button>
+                  <button key={i} onClick={() => { setDraft(q.text); setDraftQuote(q.quote ? { text: q.text, quote: q.quote } : undefined); }} className="text-sm px-3 py-2 rounded-full whitespace-nowrap max-w-[16rem] truncate" style={{ color: "#a8213b", background: "#fdf2f4", border: "1px solid #f5c6d0" }}>{q.text}</button>
                 ))}
               </div>
               <div className="px-3 sm:px-6 py-3 bg-white flex items-end gap-2 shrink-0" style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}>

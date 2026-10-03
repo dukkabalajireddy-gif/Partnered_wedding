@@ -12,6 +12,7 @@ from agent import router as agent_router  # noqa: E402  (after load_dotenv so en
 from llm import get_client  # noqa: E402
 from marketplace import router as marketplace_router  # noqa: E402
 from tracking import router as tracking_router  # noqa: E402
+from vendor_reply import router as vendor_reply_router  # noqa: E402
 
 app = FastAPI(title="Partner backend")
 app.add_middleware(
@@ -23,7 +24,7 @@ app.add_middleware(
 )
 
 # The agent answers both with and without the "/api" prefix (see health/chat below).
-for _router in (agent_router, marketplace_router, tracking_router):
+for _router in (agent_router, marketplace_router, tracking_router, vendor_reply_router):
     app.include_router(_router)
     app.include_router(_router, prefix="/api")
 

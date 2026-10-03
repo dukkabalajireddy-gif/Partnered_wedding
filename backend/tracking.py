@@ -1,5 +1,9 @@
 """Shipment tracking through Delhivery's Track API.
 
+Demo waybills: DEMO1 to DEMO5 stand still at one of the five steps. DEMO<10-digit unix time> (made by the app when a
+parcel is added without a waybill) is a whole journey that moves forward by itself, one scan every 20 seconds, so a
+parcel visibly travels while someone watches.
+
 The token lives only in backend/.env (DELHIVERY_TOKEN), never in the browser. Set DELHIVERY_ENV=production to use the
 live service; the default is Delhivery's staging environment. Waybills that start with DEMO (DEMO1 to DEMO5) return a
 made-up journey, so the screens can be shown before any real shipment or token exists.
@@ -90,6 +94,45 @@ def fetch_live(waybills: list[str]) -> dict[str, dict]:
     return out
 
 
+# One scan per entry: (Delhivery status, what the scan says, place, our step, hours since the previous scan)
+JOURNEY = [
+    ("Manifested", "Shipment information received", "{o} Facility", 0, 0),
+    ("Picked Up", "Shipment picked up from sender", "{o} Facility", 1, 3),
+    ("In Transit", "Shipment received at origin centre", "{o} Origin Centre", 2, 2),
+    ("In Transit", "Shipment dispatched from origin hub", "{o} Hub", 2, 4),
+    ("In Transit", "Shipment reached destination hub", "{d} Hub", 2, 11),
+    ("In Transit", "Shipment arrived at delivery centre", "{d} Delivery Centre", 2, 6),
+    ("Dispatched", "Out for delivery", "{d} Delivery Centre", 3, 4),
+    ("Delivered", "Delivered to consignee", "{d}", 4, 3),
+]
+SECONDS_PER_SCAN = 20
+
+
+def clean_place(s: str, fallback: str) -> str:
+    s = re.sub(r"[^A-Za-z \-]", "", s or "").strip()[:40]
+    return s or fallback
+
+
+def journey_shipment(waybill: str, origin: str, dest: str) -> dict:
+    """A parcel that moves by itself. The scan times look like a real multi-day journey, ending just now."""
+    created = int(re.search(r"(\d{9,10})$", waybill).group(1))
+    done = max(1, min(len(JOURNEY), 1 + int((time.time() - created) // SECONDS_PER_SCAN)))
+    now = datetime.now()
+    scans, t = [], now - timedelta(minutes=2)
+    for i in range(done - 1, -1, -1):  # walk back from the newest scan
+        status, note, place, _, gap = JOURNEY[i]
+        scans.append({"time": t.strftime("%Y-%m-%dT%H:%M:%S"), "status": status, "location": place.format(o=origin, d=dest), "note": note})
+        t -= timedelta(hours=gap, minutes=7 * (i % 3))
+    last = JOURNEY[done - 1]
+    remaining = sum(j[4] for j in JOURNEY[done:])
+    return {
+        "found": True, "awb": waybill, "status": last[0], "step": last[3], "returning": False,
+        "location": scans[0]["location"], "updatedAt": scans[0]["time"], "note": last[1],
+        "expectedDelivery": (now + timedelta(hours=remaining)).strftime("%Y-%m-%d"),
+        "origin": origin, "destination": dest, "scans": scans,
+    }
+
+
 def demo_shipment(waybill: str) -> dict:
     """DEMO1..DEMO5 stand for the five steps (DEMO0 behaves like DEMO1). Anything else starting with DEMO is in transit."""
     m = re.search(r"(\d)$", waybill)
@@ -110,7 +153,7 @@ def demo_shipment(waybill: str) -> dict:
 
 
 @router.get("/tracking")
-def tracking(waybill: str):
+def tracking(waybill: str, routes: str = ""):
     """Status and scan history for one or more waybills (comma-separated, up to 50)."""
     ids = list(dict.fromkeys(w.strip() for w in waybill.split(",") if w.strip()))
     if not ids:
@@ -120,20 +163,30 @@ def tracking(waybill: str):
     if not all(WAYBILL.match(w) for w in ids):
         raise HTTPException(422, "Waybill numbers may only contain letters, digits, dashes and underscores.")
 
+    try:  # {"WAYBILL": ["Origin city", "Destination city"]}: only used to dress up demo journeys
+        route_map = json.loads(routes) if routes and len(routes) < 4000 else {}
+    except json.JSONDecodeError:
+        route_map = {}
     live_ready = bool(os.getenv("DELHIVERY_TOKEN", "").strip())
     results: dict[str, dict] = {}
     to_fetch = []
     for w in ids:
         if w.upper().startswith("DEMO"):
-            results[w] = {**demo_shipment(w.upper()), "awb": w}
+            if re.fullmatch(r"DEMO\d{9,10}", w.upper()):
+                o, d = (route_map.get(w) or ["Origin", "Destination"])[:2] if isinstance(route_map.get(w), list) else ["Origin", "Destination"]
+                results[w] = {**journey_shipment(w.upper(), clean_place(o, "Origin"), clean_place(d, "Destination")), "awb": w, "source": "demo"}
+            else:
+                results[w] = {**demo_shipment(w.upper()), "awb": w, "source": "demo"}
         elif not live_ready:
             results[w] = {"found": False, "notConnected": True, "error": "Live tracking is not connected yet."}
-        elif w in _cache and time.time() - _cache[w][0] < CACHE_SECONDS:
+        elif w in _cache and time.time() - _cache[w][0] < CACHE_SECONDS:  # cached answers already carry their source
             results[w] = _cache[w][1]
         else:
             to_fetch.append(w)
     if to_fetch:
         for w, res in fetch_live(to_fetch).items():
+            if res.get("found"):
+                res["source"] = _env()
             results[w] = res
             if res.get("found"):
                 _cache[w] = (time.time(), res)

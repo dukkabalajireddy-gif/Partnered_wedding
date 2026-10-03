@@ -143,12 +143,13 @@ export interface TrackScan { time: string; status: string; location: string; not
 // What the tracking service last told us about a waybill (kept so it still shows when offline).
 export interface Tracking {
   source: "demo" | "staging" | "production"; status: string; returning: boolean; location: string; updatedAt: string;
-  note: string; scans: TrackScan[]; checkedAt: number;
+  note: string; scans: TrackScan[]; checkedAt: number; origin?: string; destination?: string;
 }
 export interface Delivery {
   id: string; item: string; kind: DeliveryKind; from: string; to: string; waybill: string;
   step: number; // index into DELIVERY_STEPS
   expected: string; neededBy: string; // yyyy-mm-dd
+  originCity?: string; destCity?: string; // for the route shown on the shipment
   tracking?: Tracking;
 }
 export const DELIVERY_KIND: Record<DeliveryKind, { label: string; icon: string }> = {
@@ -173,7 +174,16 @@ export function prettyPhone(p: string) {
 
 // ── Chat ────────────────────────────────────────────────────────────────────────
 
-export interface ChatMessage { id: string; from: "me" | "vendor"; text: string; time: string; ts?: number; }
+// A quote a vendor attached to a reply, so the agent and the booking can use the number.
+export interface Quote { amount: number; advancePct: number; validDays: number; discounted?: boolean; }
+export interface ChatMessage { id: string; from: "me" | "vendor"; text: string; time: string; ts?: number; quote?: Quote; declined?: boolean; }
+
+// ── Autopilot: the app plays the vendor when nobody else does (Wizard of Oz) ────
+export const AUTOPILOT_KEY = "partnered.autopilot";
+export const autopilotOn = () => { try { return localStorage.getItem(AUTOPILOT_KEY) !== "off"; } catch { return true; } };
+export const setAutopilot = (on: boolean) => { try { localStorage.setItem(AUTOPILOT_KEY, on ? "on" : "off"); } catch { /* storage unavailable */ } };
+export const REPLY_DELAY_MS: [number, number] = [10000, 15000]; // a reply arrives 10 to 15 seconds after the couple sends
+export const latestQuote = (messages: ChatMessage[]) => [...messages].reverse().find((m) => m.quote)?.quote;
 
 // ── Demo login ──────────────────────────────────────────────────────────────────
 // A pretend sign-in for the prototype: any mobile number works, the OTP is always the one below, and nothing is

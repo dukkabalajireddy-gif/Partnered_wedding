@@ -7,7 +7,8 @@ import LoginScreen from "./Auth";
 import VendorDesk from "./VendorDesk";
 import {
   API_BASE, BUDGET_BANDS, CATEGORY_META, daysBetween, GUESTS_UNSURE, GUEST_BANDS, INBOX_KEY, WEDDING_STYLES, addDays, dateLabel, isTentative, monthYear, INPUT_STYLE, PRIMARY_BTN, clearSaved, clearSession, formatDay, getSession, inr, isoDate, loadSaved, prettyPhone, readInbox, save, setSession, upsertConversation,
-  type Booking, type ChatMessage, type Role, type Session, type BudgetAllocation, type Category, type Delivery, type Guest, type Payment, type ScheduleDay, type WeddingPlan,
+  REPLY_DELAY_MS, autopilotOn, latestQuote, AUTOPILOT_KEY,
+  type Quote, type Booking, type ChatMessage, type Role, type Session, type BudgetAllocation, type Category, type Delivery, type Guest, type Payment, type ScheduleDay, type WeddingPlan,
 } from "./shared";
 
 
@@ -32,6 +33,7 @@ interface CityInfo { name: string; state: string; kind: "metro" | "city" | "dest
 
 
 interface Thread {
+  viaAgent?: boolean; // the agent wrote the first message, as part of asking many vendors for quotes
   vendor?: VendorRef; // who this conversation is with, so the chat can lead to a booking and payment
   id: string; sender: string; role: string; avatar: string;
   unread: boolean; lastTime: string; messages: ChatMessage[];
@@ -768,10 +770,11 @@ function doneCategories(done: Set<string>): Category[] {
   return VENDOR_CHECKS.filter((c) => done.has(c.id)).map((c) => c.category as Category);
 }
 
-function DashboardTab({ plan, allocation, bookings, checklistDone, onToggleCheck, agent, setAgent, setAllocation, setTab, onEditPlan, onMessage }: {
+function DashboardTab({ plan, allocation, bookings, checklistDone, onToggleCheck, agent, setAgent, setAllocation, setTab, onEditPlan, onMessage, threads, onRequestQuotes, onBook }: {
   plan: WeddingPlan; allocation: BudgetAllocation; bookings: Booking[]; checklistDone: Set<string>; onToggleCheck: (id: string) => void;
   agent: AgentState; setAgent: (fn: (a: AgentState) => AgentState) => void; setAllocation: (a: BudgetAllocation) => void;
   setTab: (t: Tab) => void; onEditPlan: (p: WeddingPlan) => void; onMessage: (v: VendorRef) => void;
+  threads: Thread[]; onRequestQuotes: (vs: VendorRef[]) => void; onBook: (v: VendorRef, amount: number) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [settingDate, setSettingDate] = useState(false);
@@ -879,7 +882,8 @@ function DashboardTab({ plan, allocation, bookings, checklistDone, onToggleCheck
 
         {/* Right: the agent gets the wide area */}
         <div className="order-1 xl:order-2 xl:col-span-8 min-w-0 space-y-5 sm:space-y-6">
-          <AgentPanel plan={plan} agent={agent} setAgent={setAgent} setAllocation={setAllocation} completed={doneCategories(checklistDone)} onMessage={onMessage} />
+          <AgentPanel plan={plan} agent={agent} setAgent={setAgent} setAllocation={setAllocation} completed={doneCategories(checklistDone)} onMessage={onMessage}
+            threads={threads} bookings={bookings} onRequestQuotes={onRequestQuotes} onBook={onBook} goTo={setTab} />
 
           <div className="bg-white rounded-2xl p-4 sm:p-6" style={{ border: "1px solid #fbe8ec" }}>
             <div className="flex items-center justify-between mb-4">
@@ -1584,9 +1588,9 @@ function VendorsTab({ plan, cities, city, setCity, bookings, onToggleBook, onMes
 
 // ─── Messages Tab ─────────────────────────────────────────────────────────────
 
-function MessagesTab({ plan, threads, setThreads, activeId, setActiveId, onNavigate, bookings, onBookAndPay }: {
+function MessagesTab({ plan, threads, setThreads, activeId, setActiveId, onNavigate, bookings, onBookAndPay, typing }: {
   plan: WeddingPlan; threads: Thread[]; setThreads: (t: Thread[]) => void; activeId: string; setActiveId: (id: string) => void;
-  onNavigate: (t: Tab) => void; bookings: Booking[]; onBookAndPay: (v: VendorRef) => void;
+  onNavigate: (t: Tab) => void; bookings: Booking[]; onBookAndPay: (v: VendorRef, amount?: number) => void; typing: Set<string>;
 }) {
   const [draft, setDraft] = useState("");
   // On phones only one pane shows at a time: the conversation list, or the open chat.
@@ -1632,6 +1636,8 @@ function MessagesTab({ plan, threads, setThreads, activeId, setActiveId, onNavig
     );
   }
 
+  const activeQuote = latestQuote(active.messages);
+
   const selectThread = (id: string) => {
     setActiveId(id);
     setThreads(threads.map((t) => t.id === id ? { ...t, unread: false } : t));
@@ -1664,7 +1670,7 @@ function MessagesTab({ plan, threads, setThreads, activeId, setActiveId, onNavig
                 </div>
                 <div className="text-xs text-gray-600 truncate mt-0.5">{t.role.split("·")[0].trim()}</div>
                 <div className={`text-sm truncate mt-0.5 ${t.unread ? "text-gray-800 font-medium" : "text-gray-700"}`}>
-                  {t.messages[t.messages.length - 1]?.text ?? (t.draft ? "Draft enquiry ready to review" : "No messages yet")}
+                  {typing.has(t.id) ? "typing…" : t.messages[t.messages.length - 1]?.text ?? (t.draft ? "Draft enquiry ready to review" : "No messages yet")}
                 </div>
               </div>
             </div>
@@ -1684,10 +1690,10 @@ function MessagesTab({ plan, threads, setThreads, activeId, setActiveId, onNavig
             <div className="font-medium text-gray-800 text-base truncate">{active.sender}</div>
             <div className="text-xs text-gray-600 truncate">{active.role}</div>
           </div>
-          {active.vendor?.estCost && (
-            <button onClick={() => onBookAndPay(active.vendor!)} className="ml-auto shrink-0 text-white rounded-xl px-4 py-2.5 text-sm font-medium min-h-11 sparkle-btn" style={PRIMARY_BTN}
+          {(active.vendor?.estCost || activeQuote) && (
+            <button onClick={() => onBookAndPay(active.vendor!, activeQuote?.amount)} className="ml-auto shrink-0 text-white rounded-xl px-4 py-2.5 text-sm font-medium min-h-11 sparkle-btn" style={PRIMARY_BTN}
               title="Records the booking and opens its payment schedule">
-              💳 {bookings.some((b) => b.vendorId === active.vendor!.id) ? "Pay" : <><span className="hidden sm:inline">Book &amp; </span>pay</>}
+              💳 {bookings.some((b) => b.vendorId === active.vendor!.id) ? "Pay" : activeQuote ? <><span className="hidden sm:inline">Accept {inr(activeQuote.amount)} &amp; </span>pay</> : <><span className="hidden sm:inline">Book &amp; </span>pay</>}
             </button>
           )}        </div>
 
@@ -1708,6 +1714,16 @@ function MessagesTab({ plan, threads, setThreads, activeId, setActiveId, onNavig
                 <div className={`text-sm rounded-2xl px-4 py-3 leading-relaxed ${msg.from === "me" ? "rounded-tr-sm text-white" : "rounded-tl-sm text-gray-800 bg-white"}`}
                   style={msg.from === "me" ? { background: "linear-gradient(135deg, #a8213b, #881a30)" } : { border: "1px solid #fbe8ec" }}>
                   {msg.text}
+                  {msg.quote && (
+                    <div className="mt-2.5 pt-2.5 space-y-1" style={{ borderTop: "1px solid #fbe8ec" }}>
+                      <div className="text-xs font-semibold uppercase tracking-wider" style={{ color: "#a8213b" }}>Quote{msg.quote.discounted ? " · special rate" : ""}</div>
+                      <div className="text-lg font-semibold text-gray-800">{inr(msg.quote.amount)}</div>
+                      <div className="text-xs text-gray-700">{msg.quote.advancePct}% advance ({inr(Math.round((msg.quote.amount * msg.quote.advancePct) / 10000) * 100)}) · valid {msg.quote.validDays} days</div>
+                      {active.vendor && !bookings.some((b) => b.vendorId === active.vendor!.id && b.amount === msg.quote!.amount) && (
+                        <button onClick={() => onBookAndPay(active.vendor!, msg.quote!.amount)} className="mt-1 w-full text-white rounded-lg px-3 py-2.5 text-sm font-medium min-h-11" style={PRIMARY_BTN}>Accept quote and pay</button>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div className={`text-xs text-gray-600 mt-1 ${msg.from === "me" ? "text-right" : "text-left"}`}>{msg.time}</div>
               </div>
@@ -1717,6 +1733,12 @@ function MessagesTab({ plan, threads, setThreads, activeId, setActiveId, onNavig
               )}
             </div>
           ))}
+          {typing.has(active.id) && (
+            <div className="flex justify-start" aria-live="polite">
+              <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium mr-2 mt-1 shrink-0" style={{ background: "#fdf2f4", color: "#a8213b" }}>{active.avatar}</div>
+              <div className="text-sm rounded-2xl rounded-tl-sm px-4 py-3 bg-white text-gray-700 animate-pulse" style={{ border: "1px solid #fbe8ec" }}>{active.sender} is typing…</div>
+            </div>
+          )}
           <div ref={bottomRef} />
         </div>
 
@@ -1782,15 +1804,18 @@ const FIT_STYLE: Record<AgentPick["fit"], { label: string; color: string; bg: st
   over:    { label: "Over allocation",   color: "#a8213b", bg: "#fdf2f4" },
 };
 
-function AgentPanel({ plan, agent, setAgent, setAllocation, completed, onMessage }: {
+function AgentPanel({ plan, agent, setAgent, setAllocation, completed, onMessage, threads, bookings, onRequestQuotes, onBook, goTo }: {
   plan: WeddingPlan; agent: AgentState; setAgent: (fn: (a: AgentState) => AgentState) => void; setAllocation: (a: BudgetAllocation) => void;
   completed: Category[]; // categories the couple already marked done on the checklist
   onMessage: (v: VendorRef) => void; // opens a chat with a vendor the agent suggested
+  threads: Thread[]; bookings: Booking[]; goTo: (t: Tab) => void;
+  onRequestQuotes: (vs: VendorRef[]) => void; // the agent writes to several vendors at once
+  onBook: (v: VendorRef, amount: number) => void;
 }) {
   const [phase, setPhase] = useState<"idle" | "running" | "error">("idle");
   const [error, setError] = useState("");
   const [shown, setShown] = useState(agent.result?.events.length ?? 0);
-  const [view, setView] = useState<"summary" | "budget" | "picks" | "activity">("summary");
+  const [view, setView] = useState<"summary" | "budget" | "picks" | "quotes" | "activity">("summary");
   const [pickCat, setPickCat] = useState<Category | null>(null);
   const result = agent.result;
 
@@ -1843,8 +1868,28 @@ function AgentPanel({ plan, agent, setAgent, setAllocation, completed, onMessage
   const avgScore = topPicks.length ? Math.round(topPicks.reduce((a, p) => a + p.score, 0) / topPicks.length) : 0;
   const activeCat = pickCat && pickedCats.includes(pickCat) ? pickCat : pickedCats[0];
   const maxAlloc = result ? Math.max(...cats.map((k) => result.allocation[k])) : 1;
+  // Quotes: what each vendor the agent wrote to has answered so far
+  const asRef = (p: AgentPick): VendorRef => ({ id: p.id, name: p.name, category: p.category, area: p.area, city: plan.location, estCost: p.estCost });
+  type QStatus = { kind: "none" | "waiting" | "replied" | "declined" | "quoted"; amount?: number };
+  const statusOf = (p: AgentPick): QStatus => {
+    const th = threads.find((x) => x.id === `vendor-${p.id}`);
+    if (!th || th.messages.length === 0) return { kind: "none" };
+    const q = latestQuote(th.messages);
+    const lastVendor = [...th.messages].reverse().find((m) => m.from === "vendor");
+    if (q) return { kind: "quoted", amount: q.amount };
+    if (lastVendor?.declined) return { kind: "declined" };
+    return { kind: lastVendor ? "replied" : "waiting" };
+  };
+  const quoteRows = result ? pickedCats.map((k) => ({ k, rows: (result.shortlists[k] ?? []).map((p) => ({ p, s: statusOf(p) })) })) : [];
+  const requestedCount = quoteRows.reduce((n, c) => n + c.rows.filter((r) => r.s.kind !== "none").length, 0);
+  const quotesIn = quoteRows.reduce((n, c) => n + c.rows.filter((r) => r.s.kind === "quoted").length, 0);
+  const toRequest = quoteRows.flatMap((c) => c.rows.filter((r) => r.s.kind === "none").slice(0, 2).map((r) => asRef(r.p)));
+  const bestQuote = (rows: { s: QStatus }[]) => { const a = rows.filter((r) => r.s.kind === "quoted").map((r) => r.s.amount!); return a.length ? Math.min(...a) : undefined; };
+  const cheapestTotal = quoteRows.reduce((n, c) => n + (bestQuote(c.rows) ?? 0), 0);
+  const categoriesWithQuote = quoteRows.filter((c) => bestQuote(c.rows) !== undefined).length;
   const TABS: { id: typeof view; label: string }[] = [
-    { id: "summary", label: "Summary" }, { id: "budget", label: "Budget" }, { id: "picks", label: "Top picks" }, { id: "activity", label: "Activity" },
+    { id: "summary", label: "Summary" }, { id: "budget", label: "Budget" }, { id: "picks", label: "Top picks" },
+    { id: "quotes", label: quotesIn ? `Quotes (${quotesIn})` : "Quotes" }, { id: "activity", label: "Activity" },
   ];
 
   return (
@@ -1954,6 +1999,74 @@ function AgentPanel({ plan, agent, setAgent, setAllocation, completed, onMessage
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {result && finished && view === "quotes" && (
+              <div className="space-y-5">
+                {requestedCount === 0 ? (
+                  <div className="rounded-xl p-4 space-y-3" style={{ background: "linear-gradient(135deg, #fdf2f4, #fefdf0)", border: "1px solid #f5c6d0" }}>
+                    <p className="text-sm sm:text-base text-gray-800 leading-relaxed">Let the agent write to the top two options in each category for you. Their replies, with quotes, arrive here within about 15 seconds, so you can compare them against your budget and book the ones you like.</p>
+                    <button onClick={() => onRequestQuotes(toRequest)} disabled={toRequest.length === 0} className="text-white rounded-xl px-6 py-3 font-medium text-sm sparkle-btn disabled:opacity-50 w-full sm:w-auto" style={PRIMARY_BTN}>
+                      ✦ Request quotes from {toRequest.length} vendors
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="rounded-xl p-4 space-y-1" style={{ background: "linear-gradient(135deg, #fdf2f4, #fefdf0)", border: "1px solid #f5c6d0" }}>
+                      <div className="text-sm text-gray-800">{quotesIn} quote{quotesIn === 1 ? "" : "s"} in from {requestedCount} vendors you asked.</div>
+                      {categoriesWithQuote > 0 && (
+                        <div className="text-sm text-gray-800">
+                          Cheapest quote in each of {categoriesWithQuote} categories adds up to <span className="font-semibold">{inr(cheapestTotal)}</span>
+                          {cheapestTotal > result.envelope.allocatable ? <span className="font-semibold" style={{ color: "#a8213b" }}> ({inr(cheapestTotal - result.envelope.allocatable)} over your {inr(result.envelope.allocatable)})</span> : <span> of your {inr(result.envelope.allocatable)}.</span>}
+                        </div>
+                      )}
+                      {toRequest.length > 0 && <button onClick={() => onRequestQuotes(toRequest)} className="mt-2 rounded-lg px-4 py-2 text-sm font-medium" style={{ color: "#a8213b", border: "1px solid #a8213b", background: "#fff" }}>Ask {toRequest.length} more vendors</button>}
+                    </div>
+                    {quoteRows.filter((c) => c.rows.some((r) => r.s.kind !== "none")).map(({ k, rows }) => {
+                      const cap = result.allocation[k];
+                      const best = bestQuote(rows);
+                      const waiting = rows.some((r) => r.s.kind === "waiting");
+                      const spare = rows.filter((r) => r.s.kind === "none").slice(0, 2);
+                      return (
+                        <div key={k} className="space-y-2">
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <div className="text-sm font-semibold text-gray-800">{CATEGORY_META[k].icon} {CATEGORY_META[k].label}</div>
+                            <div className="text-xs text-gray-700">Budget {inr(cap)}</div>
+                          </div>
+                          {rows.filter((r) => r.s.kind !== "none").map(({ p, s }) => {
+                            const booked = bookings.some((b) => b.vendorId === p.id && s.amount !== undefined && b.amount === s.amount);
+                            const over = s.amount !== undefined && s.amount > cap;
+                            return (
+                              <div key={p.id} className="flex flex-wrap sm:flex-nowrap items-center gap-3 rounded-xl p-3" style={{ background: "#fdf8f0", border: "1px solid #fbe8ec" }}>
+                                <div className="flex-1 min-w-[10rem]">
+                                  <div className="text-sm font-semibold text-gray-800">{p.name}</div>
+                                  <div className="text-xs text-gray-700">Our estimate {inr(p.estCost)}</div>
+                                </div>
+                                {s.kind === "quoted" && <div className="text-right"><div className="text-base font-semibold" style={{ color: over ? "#a8213b" : "#2f6b1f" }}>{inr(s.amount!)}</div><div className="text-xs text-gray-700">{over ? `${inr(s.amount! - cap)} over budget` : "within budget"}</div></div>}
+                                {s.kind === "waiting" && <span className="text-sm text-gray-700 animate-pulse">Waiting for a reply…</span>}
+                                {s.kind === "replied" && <span className="text-sm text-gray-700">Replied, no quote yet</span>}
+                                {s.kind === "declined" && <span className="text-sm font-medium" style={{ color: "#a8213b" }}>Not available</span>}
+                                <div className="flex gap-2 w-full sm:w-auto">
+                                  <button onClick={() => onMessage(asRef(p))} className="flex-1 sm:flex-none rounded-lg px-3 py-2 text-sm min-h-10" style={{ color: "#a8213b", border: "1px solid #f5c6d0", background: "#fff" }}>Chat</button>
+                                  {s.kind === "quoted" && (booked
+                                    ? <button onClick={() => goTo("payments")} className="flex-1 sm:flex-none rounded-lg px-3 py-2 text-sm font-medium min-h-10" style={{ background: "#f3faf0", color: "#2f6b1f", border: "1px solid #9bd08a" }}>✓ Booked · Pay</button>
+                                    : <button onClick={() => onBook(asRef(p), s.amount!)} className="flex-1 sm:flex-none text-white rounded-lg px-3 py-2 text-sm font-medium min-h-10" style={PRIMARY_BTN}>Book at {inr(s.amount!)}</button>)}
+                                </div>
+                              </div>
+                            );
+                          })}
+                          {!waiting && (best === undefined || best > cap) && spare.length > 0 && (
+                            <div className="flex items-center gap-3 flex-wrap rounded-lg p-3" style={{ background: "#fffdf0", border: "1px solid #fbf0a1" }}>
+                              <span className="text-sm text-gray-800 flex-1 min-w-[12rem]">{best === undefined ? "No one here can take your dates." : `The cheapest quote is ${inr(best - cap)} over this category's budget.`} I can ask {spare.length} more option{spare.length === 1 ? "" : "s"}.</span>
+                              <button onClick={() => onRequestQuotes(spare.map((r) => asRef(r.p)))} className="rounded-lg px-4 py-2 text-sm font-medium text-white" style={PRIMARY_BTN}>Ask {spare.length} more</button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </>
+                )}
               </div>
             )}
 
@@ -2195,6 +2308,79 @@ function CoupleApp({ session, onLogout, onSwitchRole }: { session: Session; onLo
     return () => { window.removeEventListener("storage", onStorage); window.clearInterval(timer); };
   }, [phone]);
 
+  // Autopilot: when the couple writes to a vendor and nobody answers, the app replies for the vendor 10 to 15 seconds later.
+  const [typing, setTyping] = useState<Set<string>>(new Set());
+  const [apTick, setApTick] = useState(0); // bumps when the vendor desk switches autopilot on or off
+  const scheduled = useRef<Set<string>>(new Set());
+  const threadsRef = useRef(threads); threadsRef.current = threads;
+  const planRef = useRef(plan); planRef.current = plan;
+  const alive = useRef(true);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+  useEffect(() => {
+    const on = (e: StorageEvent) => { if (e.key === AUTOPILOT_KEY) setApTick((n) => n + 1); };
+    window.addEventListener("storage", on);
+    return () => window.removeEventListener("storage", on);
+  }, []);
+
+  const stopTyping = (id: string) => { if (alive.current) setTyping((s) => { const n = new Set(s); n.delete(id); return n; }); };
+  // The reply is written straight away and held until its 10 to 15 second mark, so slow writing never makes it late.
+  const stillWaiting = (threadId: string, key: string) => {
+    const t = threadsRef.current.find((x) => x.id === threadId);
+    const last = t?.messages[t.messages.length - 1];
+    if (!t || !t.vendor || !last || last.from !== "me" || `${t.id}:${last.id}` !== key || !autopilotOn()) return null;
+    // a person at the vendor desk got there first: stay quiet
+    const conv = readInbox()[`${phone}|${t.id}`];
+    if (conv?.messages.some((m) => m.from === "vendor" && (m.ts ?? 0) > (last.ts ?? 0))) return null;
+    return t;
+  };
+  const autoReply = async (threadId: string, key: string, delay: number) => {
+    const t = stillWaiting(threadId, key);
+    const pl = planRef.current;
+    if (!t || !t.vendor || !pl) return stopTyping(threadId);
+    const writing: Promise<{ text: string; quote?: Quote | null; declined?: boolean }> = (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/vendor-reply`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            vendor: { id: t.vendor!.id, name: t.vendor!.name, category: t.vendor!.category, city: t.vendor!.city, estCost: t.vendor!.estCost ?? 0 },
+            couple: { names: `${pl.name} & ${pl.partnerName}`, city: pl.location, date: pl.date, guests: pl.guestCount, days: Math.max(1, pl.schedule.length), styles: pl.styles ?? [] },
+            history: t.messages.map((m) => ({ frm: m.from, text: m.text })),
+            lastQuote: latestQuote(t.messages)?.amount ?? null, discounted: t.messages.some((m) => m.quote?.discounted),
+            fast: !!t.viaAgent && t.messages.length === 1, // many agent enquiries at once: the first reply is written instantly
+          }),
+        });
+        if (!res.ok) throw new Error("reply failed");
+        return await res.json();
+      } catch {
+        return { text: "Thank you for your message! We'll get back to you shortly." };
+      }
+    })();
+    await new Promise((r) => window.setTimeout(r, delay));
+    if (!alive.current) return;
+    if (!stillWaiting(threadId, key)) return stopTyping(threadId);
+    const reply = await writing;
+    if (!alive.current) return;
+    const ts = Date.now();
+    const msg: ChatMessage = { id: `v-${ts}`, from: "vendor", text: reply.text, time: now(), ts, quote: reply.quote ?? undefined, declined: reply.declined || undefined };
+    setThreads((ts0) => ts0.map((x) => (x.id === threadId ? { ...x, messages: [...x.messages, msg], lastTime: "Just now", unread: activeThreadRef.current !== threadId && !(x.viaAgent && x.messages.length === 1) } : x)));  // quotes the agent asked for show in its Quotes tab, not as unread chats
+    stopTyping(threadId);
+  };
+  useEffect(() => {
+    if (!plan || !autopilotOn()) return;
+    threads.forEach((t) => {
+      const last = t.messages[t.messages.length - 1];
+      if (!t.vendor || !last || last.from !== "me") return;
+      const key = `${t.id}:${last.id}`;
+      if (scheduled.current.has(key)) return;
+      scheduled.current.add(key);
+      const [lo, hi] = REPLY_DELAY_MS;
+      const delay = lo + Math.random() * (hi - lo);
+      window.setTimeout(() => { if (alive.current) setTyping((s) => new Set(s).add(t.id)); }, Math.max(0, delay - 4000));
+      void autoReply(t.id, key, delay);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [threads, plan, apTick]);
+
   const [about, setAbout] = useState(false);
 
   const startOver = () => {
@@ -2204,9 +2390,17 @@ function CoupleApp({ session, onLogout, onSwitchRole }: { session: Session; onLo
     setBookings([]); setAgent({ objective: "", result: null, applied: false }); setPayments([]); setGuests([]); setDeliveries([]); setChecklistDone(new Set());
   };
 
-  // From a chat: record the booking (if it is not one already) and go to its payment schedule.
-  const bookAndPay = (v: VendorRef) => {
-    if (v.estCost && !bookings.some((b) => b.vendorId === v.id)) toggleBook(v, v.estCost);
+  // Book a vendor at an agreed amount (a quote, or our estimate). Rebuilds the payment plan unless something was already paid.
+  const bookAt = (v: VendorRef, amount: number) => {
+    setBookings((bs) => bs.some((b) => b.vendorId === v.id)
+      ? bs.map((b) => (b.vendorId === v.id ? { ...b, amount } : b))
+      : [...bs, { vendorId: v.id, vendorName: v.name, category: v.category, amount }]);
+    setPayments((ps) => (ps.some((p) => p.vendorId === v.id && p.status === "paid") ? ps : ps.filter((p) => p.vendorId !== v.id)));
+  };
+  // From a chat: book (at the quote if there is one) and go to its payment schedule.
+  const bookAndPay = (v: VendorRef, amount?: number) => {
+    const amt = amount ?? v.estCost;
+    if (amt) bookAt(v, amt);
     setTab("payments");
   };
 
@@ -2218,23 +2412,41 @@ function CoupleApp({ session, onLogout, onSwitchRole }: { session: Session; onLo
 
   // "Message" on a vendor (marketplace or agent suggestion): open the chat with them, or start one with a
   // drafted enquiry the couple can review and send, then go to Messages.
+  const enquiryText = (v: VendorRef) => {
+    const pl = plan!;
+    const days = pl.schedule.length ? pl.schedule : [{ date: pl.date, rituals: [] }];
+    const short = (d: string) => new Date(`${d}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+    const first = days[0].date, last = days[days.length - 1].date;
+    const when = isTentative(pl) ? `around ${monthYear(pl.date)}` : first === last ? short(first) : `${short(first)} to ${short(last)}`;
+    return `Hi ${v.name} team, we're ${pl.name} and ${pl.partnerName}. We're planning a ${days.length}-day wedding in ${v.city} (${when}) for about ${pl.guestCount} guests. Are you available on those dates, and could you share a quote for ${CATEGORY_META[v.category].label.toLowerCase()}? Thank you!`;
+  };
+  const threadFor = (v: VendorRef): Thread => ({
+    id: `vendor-${v.id}`, vendor: v, sender: v.name, role: `${CATEGORY_META[v.category].label} · ${v.area}, ${v.city}`,
+    avatar: v.name[0], unread: false, lastTime: "New", messages: [],
+  });
+
   const messageVendor = (v: VendorRef) => {
     if (!plan) return;
     const id = `vendor-${v.id}`;
-    if (!threads.some((t) => t.id === id)) {
-      const days = plan.schedule.length ? plan.schedule : [{ date: plan.date, rituals: [] }];
-      const short = (d: string) => new Date(`${d}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
-      const first = days[0].date, last = days[days.length - 1].date;
-      const when = first === last ? short(first) : `${short(first)} to ${short(last)}`;
-      const thread: Thread = {
-        id, vendor: v, sender: v.name, role: `${CATEGORY_META[v.category].label} · ${v.area}, ${v.city}`,
-        avatar: v.name[0], unread: false, lastTime: "New", messages: [],
-        draft: `Hi ${v.name} team, we're ${plan.name} and ${plan.partnerName}. We're planning a ${days.length}-day wedding in ${v.city} (${when}) for about ${plan.guestCount} guests. Are you available on those dates, and could you share a quote for ${CATEGORY_META[v.category].label.toLowerCase()}? Thank you!`,
-      };
-      setThreads([thread, ...threads]);
-    }
+    if (!threads.some((t) => t.id === id)) setThreads([{ ...threadFor(v), draft: enquiryText(v) }, ...threads]);
     setActiveThreadId(id);
     setTab("messages");
+  };
+
+  // The agent sends the enquiry itself to several vendors at once (no draft to review); the autopilot answers each in turn.
+  const requestQuotes = (vs: VendorRef[]) => {
+    if (!plan) return;
+    const base = Date.now();
+    setThreads((cur) => {
+      const out = [...cur];
+      vs.forEach((v, i) => {
+        const msg: ChatMessage = { id: String(base + i), from: "me", text: enquiryText(v), time: now(), ts: base + i };
+        const at = out.findIndex((t) => t.id === `vendor-${v.id}`);
+        if (at === -1) out.unshift({ ...threadFor(v), viaAgent: true, messages: [msg], lastTime: "Just now" });
+        else if (out[at].messages.length === 0) out[at] = { ...out[at], viaAgent: true, messages: [msg], draft: undefined, lastTime: "Just now" };
+      });
+      return out;
+    });
   };
 
   if (!plan) return <OnboardingScreen cities={cities} onComplete={handleOnboard} />;
@@ -2254,12 +2466,13 @@ function CoupleApp({ session, onLogout, onSwitchRole }: { session: Session; onLo
       <MobileTopBar plan={plan} />
       <main className="flex-1 overflow-y-auto relative min-h-0">
         {tab === "dashboard" && <DashboardTab plan={plan} allocation={allocation} bookings={bookings} checklistDone={checklistDone} onToggleCheck={toggleCheck}
-          agent={agent} setAgent={setAgent} setAllocation={setAllocation} setTab={setTab} onEditPlan={setPlan} onMessage={messageVendor} />}
+          agent={agent} setAgent={setAgent} setAllocation={setAllocation} setTab={setTab} onEditPlan={setPlan} onMessage={messageVendor}
+          threads={threads} onRequestQuotes={requestQuotes} onBook={bookAt} />}
         {tab === "stories"   && <ComingSoonTab icon="❀" title="Success Stories" blurb="Real weddings planned on Partnered." />}
         {tab === "blogs"     && <BlogsTab onBrowseCity={(c) => { setMarketCity(c); setTab("vendors"); }} />}
         {tab === "budget"    && <BudgetTab plan={plan} allocation={allocation} setAllocation={setAllocation} />}
         {tab === "vendors"   && <VendorsTab plan={plan} cities={cities} city={shownCity} setCity={setMarketCity} bookings={bookings} onToggleBook={toggleBook} onMessage={messageVendor} />}
-        {tab === "messages"  && <MessagesTab plan={plan} threads={threads} setThreads={setThreads} activeId={activeThreadId} setActiveId={setActiveThreadId} onNavigate={setTab} bookings={bookings} onBookAndPay={bookAndPay} />}
+        {tab === "messages"  && <MessagesTab plan={plan} threads={threads} setThreads={setThreads} activeId={activeThreadId} setActiveId={setActiveThreadId} onNavigate={setTab} bookings={bookings} onBookAndPay={bookAndPay} typing={typing} />}
         {tab === "payments"   && <PaymentsTab plan={plan} bookings={bookings} allocation={allocation} payments={payments} setPayments={setPayments} onBrowse={() => setTab("vendors")} />}
         {tab === "guests"     && <GuestsTab plan={plan} guests={guests} setGuests={setGuests} onGuestCount={(n) => setPlan({ ...plan, guestCount: n })} />}
         {tab === "deliveries" && <DeliveriesTab plan={plan} bookings={bookings} deliveries={deliveries} setDeliveries={setDeliveries} />}
