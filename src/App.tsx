@@ -1,11 +1,14 @@
 import { useState, useMemo, useRef, useEffect } from "react";
 import BlogsTab from "./Blogs";
+import PaymentsTab from "./Payments";
+import GuestsTab from "./Guests";
+import DeliveriesTab from "./Deliveries";
+import {
+  API_BASE, CATEGORY_META, INPUT_STYLE, PRIMARY_BTN, clearSaved, formatDay, inr, isoDate, loadSaved, save,
+  type Booking, type BudgetAllocation, type Category, type Delivery, type Guest, type Payment, type ScheduleDay, type WeddingPlan,
+} from "./shared";
 
-type Category = "attire" | "catering" | "decoration" | "gifts" | "logistics" | "transport" | "hotels" | "photography" | "music";
-type BudgetAllocation = Record<Category, number>;
 
-// In development the backend runs on :8000; in production it is served under the same site at /api.
-const API_BASE = import.meta.env.DEV ? "http://localhost:8000" : "";
 
 // A vendor as the marketplace backend describes it (GET /api/vendors).
 // "osm" = a real listing from OpenStreetMap (no reviews or prices exist for it, so those are null; its Partner score comes from the listing itself);
@@ -20,32 +23,25 @@ interface MarketVendor {
   scoreFactors?: { label: string; ok: boolean; points: number }[];
 }
 // The few fields needed to open a chat or record a booking with a vendor.
-type VendorRef = Pick<MarketVendor, "id" | "name" | "category" | "area" | "city">;
+type VendorRef = Pick<MarketVendor, "id" | "name" | "category" | "area" | "city"> & { estCost?: number };
 interface CityInfo { name: string; state: string; kind: "metro" | "city" | "destination"; vendorCount: number; realCount?: number; }
 
-// A vendor the couple has booked. Spend is computed from these.
-interface Booking { vendorId: string; vendorName: string; category: Category; amount: number; }
+
 
 interface ChatMessage {
   id: string; from: "me" | "vendor"; text: string; time: string;
 }
 
 interface Thread {
+  vendor?: VendorRef; // who this conversation is with, so the chat can lead to a booking and payment
   id: string; sender: string; role: string; avatar: string;
   unread: boolean; lastTime: string; messages: ChatMessage[];
   draft?: string; // a message prepared for the couple to review and send
 }
 
-interface WeddingPlan {
-  name: string; partnerName: string; date: string;
-  location: string; budget: number; guestCount: number;
-  rituals: string[];
-  schedule: ScheduleDay[];
-  creativeDirector: boolean;
-}
 
-// One day of the celebrations and the events held on it.
-interface ScheduleDay { date: string; rituals: string[]; }
+
+
 
 // ─── Rituals (grouped by tradition; the same ritual can appear in more than one group) ───
 
@@ -63,7 +59,7 @@ const RITUAL_GROUPS: { title: string; items: string[] }[] = [
   { title: "Modern add-ons", items: ["Cocktail Night", "Bachelor / Bachelorette", "Pre-wedding Shoot", "Kirtan / Jagrata", "Welcome Dinner"] },
 ];
 
-function inr(n: number) { return "₹" + n.toLocaleString("en-IN"); }
+
 
 function now() {
   return new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
@@ -76,17 +72,7 @@ const ML_WEIGHTS: Record<Category, number> = {
   hotels: 0.10, transport: 0.08, music: 0.06, gifts: 0.05, logistics: 0.04,
 };
 
-const CATEGORY_META: Record<Category, { label: string; icon: string; color: string }> = {
-  catering:    { label: "Catering & Food",   icon: "🍽️", color: "#a8213b" },
-  attire:      { label: "Attire & Lehenga",  icon: "👗", color: "#881a30" },
-  decoration:  { label: "Decoration",        icon: "💐", color: "#c08a0c" },
-  photography: { label: "Photography",       icon: "📸", color: "#c93a52" },
-  hotels:      { label: "Hotels & Venue",    icon: "🏨", color: "#7c5210" },
-  transport:   { label: "Transport",         icon: "🚗", color: "#9a6a0a" },
-  music:       { label: "Music & Sangeet",   icon: "🎵", color: "#e0b015" },
-  gifts:       { label: "Gifts & Shagun",    icon: "🎁", color: "#6e1828" },
-  logistics:   { label: "Logistics",         icon: "📋", color: "#c93a52" },
-};
+
 
 function mlAllocate(total: number, guestCount: number): BudgetAllocation {
   const w = { ...ML_WEIGHTS };
@@ -118,21 +104,16 @@ function Backdrop() {
 const CHIP_ON = { background: "linear-gradient(135deg, #a8213b, #881a30)", color: "#fff", border: "1px solid #881a30" };
 const CHIP_OFF = { background: "#fff", color: "#1a1a1a", border: "1px solid #f5c6d0" };
 const CHIP_ELSEWHERE = { background: "#fdf2f4", color: "#444", border: "1px dashed #c98a98" };
-const INPUT_STYLE = { border: "1px solid #f5c6d0", background: "#fdf2f4" };
-const PRIMARY_BTN = { background: "linear-gradient(135deg, #a8213b, #881a30)" };
 
-function isoDate(d: Date) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
+
+
 function nextDay(s: string) {
   if (!s) return "";
   const d = new Date(`${s}T00:00:00`);
   d.setDate(d.getDate() + 1);
   return isoDate(d);
 }
-function formatDay(s: string) {
-  return new Date(`${s}T00:00:00`).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
-}
+
 function pruneSchedule(days: ScheduleDay[], rituals: string[]): ScheduleDay[] {
   return days.map((d) => ({ ...d, rituals: d.rituals.filter((r) => rituals.includes(r)) }));
 }
@@ -516,12 +497,17 @@ function OnboardingScreen({ cities, onComplete }: { cities: CityInfo[]; onComple
 
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
 
-type Tab = "dashboard" | "budget" | "vendors" | "messages" | "stories" | "blogs";
+type Tab = "dashboard" | "budget" | "vendors" | "messages" | "payments" | "guests" | "deliveries" | "stories" | "blogs";
 const NAV: { id: Tab; label: string; icon: string }[] = [
   { id: "dashboard", label: "Overview",  icon: "◈" },
   { id: "budget",    label: "Budget",    icon: "◎" },
   { id: "vendors",   label: "Vendors",   icon: "◉" },
   { id: "messages",  label: "Messages",  icon: "◐" },
+];
+const MANAGE_NAV: { id: Tab; label: string; icon: string }[] = [
+  { id: "payments",   label: "Payments",       icon: "₹" },
+  { id: "guests",     label: "Guests & RSVP",  icon: "❋" },
+  { id: "deliveries", label: "Deliveries",     icon: "▤" },
 ];
 const INSPIRATION_NAV: { id: Tab; label: string; icon: string }[] = [
   { id: "stories", label: "Success Stories", icon: "❀" },
@@ -555,7 +541,7 @@ function PoweredBy({ className = "" }: { className?: string }) {
   );
 }
 
-function Sidebar({ tab, setTab, plan, unreadCount }: { tab: Tab; setTab: (t: Tab) => void; plan: WeddingPlan; unreadCount: number }) {
+function Sidebar({ tab, setTab, plan, unreadCount, onReset }: { tab: Tab; setTab: (t: Tab) => void; plan: WeddingPlan; unreadCount: number; onReset: () => void }) {
   const daysLeft = useMemo(() => Math.max(0, Math.ceil((new Date(plan.date).getTime() - Date.now()) / 86400000)), [plan.date]);
   return (
     <aside className="w-60 shrink-0 flex flex-col h-screen sticky top-0" style={{ background: "#fff", borderRight: "1px solid #fbe8ec" }}>
@@ -599,21 +585,25 @@ function Sidebar({ tab, setTab, plan, unreadCount }: { tab: Tab; setTab: (t: Tab
           </button>
         ))}
 
-        <div className="pt-4 mt-3 px-3 text-xs font-semibold uppercase tracking-wider" style={{ color: "#a8213b", borderTop: "1px solid #fdf2f4" }}>Inspiration</div>
-        {INSPIRATION_NAV.map((n) => (
-          <button key={n.id} onClick={() => setTab(n.id)}
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all"
-            style={tab === n.id ? { background: "linear-gradient(135deg, #a8213b, #881a30)", color: "#fff" } : { color: "#1a1a1a" }}>
-            <span className="text-base leading-none">{n.icon}</span>
-            {n.label}
-          </button>
+        {NAV_SECTIONS.map(([title, items]) => (
+          <div key={title}>
+            <div className="pt-4 mt-3 px-3 pb-1 text-xs font-semibold uppercase tracking-wider" style={{ color: "#a8213b", borderTop: "1px solid #fdf2f4" }}>{title}</div>
+            {items.map((n) => (
+              <button key={n.id} onClick={() => setTab(n.id)}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all"
+                style={tab === n.id ? { background: "linear-gradient(135deg, #a8213b, #881a30)", color: "#fff" } : { color: "#1a1a1a" }}>
+                <span className="text-base leading-none w-4 text-center">{n.icon}</span>
+                {n.label}
+              </button>
+            ))}
+          </div>
         ))}
       </nav>
-
       <div className="px-4 py-4" style={{ borderTop: "1px solid #fdf2f4" }}>
         <div className="text-xs text-gray-400">{new Date(plan.date).toLocaleDateString("en-IN", { month: "long", day: "numeric", year: "numeric" })}</div>
         <div className="text-xs mt-0.5" style={{ color: "#c08a0c" }}>{plan.guestCount} guests · {inr(plan.budget)}</div>
         <PoweredBy className="mt-4" />
+        <button onClick={onReset} className="mt-3 text-xs text-gray-600 underline min-h-8">↺ Start over</button>
       </div>
     </aside>
   );
@@ -1420,9 +1410,9 @@ function VendorsTab({ plan, cities, city, setCity, bookings, onToggleBook, onMes
 
 // ─── Messages Tab ─────────────────────────────────────────────────────────────
 
-function MessagesTab({ plan, threads, setThreads, activeId, setActiveId, onNavigate }: {
+function MessagesTab({ plan, threads, setThreads, activeId, setActiveId, onNavigate, bookings, onBookAndPay }: {
   plan: WeddingPlan; threads: Thread[]; setThreads: (t: Thread[]) => void; activeId: string; setActiveId: (id: string) => void;
-  onNavigate: (t: Tab) => void;
+  onNavigate: (t: Tab) => void; bookings: Booking[]; onBookAndPay: (v: VendorRef) => void;
 }) {
   const [draft, setDraft] = useState("");
   // On phones only one pane shows at a time: the conversation list, or the open chat.
@@ -1520,13 +1510,12 @@ function MessagesTab({ plan, threads, setThreads, activeId, setActiveId, onNavig
             <div className="font-medium text-gray-800 text-base truncate">{active.sender}</div>
             <div className="text-xs text-gray-600 truncate">{active.role}</div>
           </div>
-          <div className="ml-auto hidden xl:flex gap-2">
-            {["📅 Schedule Call", "📄 View Contract", "📎 Share File"].map((l) => (
-              <span key={l} className="text-xs px-3 py-1.5 rounded-full cursor-pointer transition-colors select-none"
-                style={{ background: "#fdf2f4", color: "#a8213b" }}>{l}</span>
-            ))}
-          </div>
-        </div>
+          {active.vendor?.estCost && (
+            <button onClick={() => onBookAndPay(active.vendor!)} className="ml-auto shrink-0 text-white rounded-xl px-4 py-2.5 text-sm font-medium min-h-11 sparkle-btn" style={PRIMARY_BTN}
+              title="Records the booking and opens its payment schedule">
+              💳 {bookings.some((b) => b.vendorId === active.vendor!.id) ? "Pay" : <><span className="hidden sm:inline">Book &amp; </span>pay</>}
+            </button>
+          )}        </div>
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 sm:py-5 space-y-4 min-h-0">
@@ -1818,7 +1807,7 @@ function AgentPanel({ plan, agent, setAgent, setAllocation, completed, onMessage
                             <div className="text-sm text-gray-700">{p.area} · est. {inr(p.estCost)}</div>
                             <div className="text-xs text-gray-600">{p.reasons.slice(0, 2).join(" · ")}</div>
                           </div>
-                          <button onClick={() => onMessage({ id: p.id, name: p.name, category: p.category, area: p.area, city: plan.location })}
+                          <button onClick={() => onMessage({ id: p.id, name: p.name, category: p.category, area: p.area, city: plan.location, estCost: p.estCost })}
                             className="w-full sm:w-auto sm:shrink-0 text-sm font-medium rounded-xl px-4 py-3 sm:py-2 text-white" style={PRIMARY_BTN}
                             title="Opens a chat with a drafted enquiry">💬 Message</button>
                         </div>
@@ -1839,6 +1828,7 @@ function AgentPanel({ plan, agent, setAgent, setAllocation, completed, onMessage
 
 // ─── Phone / tablet navigation (the sidebar is desktop only) ────────────────────
 
+const NAV_SECTIONS: [string, { id: Tab; label: string; icon: string }[]][] = [["Manage", MANAGE_NAV], ["Inspiration", INSPIRATION_NAV]];
 const MOBILE_TABS: { id: Tab; label: string; icon: string }[] = [
   { id: "dashboard", label: "Overview", icon: "◈" },
   { id: "budget",    label: "Budget",   icon: "◎" },
@@ -1859,9 +1849,9 @@ function MobileTopBar({ plan }: { plan: WeddingPlan }) {
   );
 }
 
-function MobileTabBar({ tab, setTab, plan, unreadCount }: { tab: Tab; setTab: (t: Tab) => void; plan: WeddingPlan; unreadCount: number }) {
+function MobileTabBar({ tab, setTab, plan, unreadCount, onReset }: { tab: Tab; setTab: (t: Tab) => void; plan: WeddingPlan; unreadCount: number; onReset: () => void }) {
   const [more, setMore] = useState(false);
-  const moreActive = tab === "stories" || tab === "blogs";
+  const moreActive = NAV_SECTIONS.some(([, items]) => items.some((n) => n.id === tab));
   const item = (active: boolean) => ({ color: active ? "#a8213b" : "#1a1a1a", borderTop: `3px solid ${active ? "#a8213b" : "transparent"}` });
   return (
     <>
@@ -1894,20 +1884,24 @@ function MobileTabBar({ tab, setTab, plan, unreadCount }: { tab: Tab; setTab: (t
               <div className="text-sm text-gray-700">{plan.location} · {new Date(plan.date).toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })}</div>
               <div className="text-sm text-gray-700">{plan.guestCount} guests · {inr(plan.budget)}</div>
             </div>
+            {NAV_SECTIONS.map(([title, items]) => (
+              <div key={title} className="space-y-2">
+                <div className="text-xs font-semibold uppercase tracking-wider" style={{ color: "#a8213b" }}>{title}</div>
+                <div className="space-y-1">
+                  {items.map((n) => (
+                    <button key={n.id} onClick={() => { setTab(n.id); setMore(false); }}
+                      className="w-full flex items-center gap-3 px-3 rounded-xl text-base font-medium text-left" style={{ minHeight: 48, color: tab === n.id ? "#fff" : "#1a1a1a", background: tab === n.id ? "linear-gradient(135deg, #a8213b, #881a30)" : "#fdf8f0" }}>
+                      <span className="text-lg w-5 text-center">{n.icon}</span>{n.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
             <PoweredBy />
-            <div className="text-xs font-semibold uppercase tracking-wider" style={{ color: "#a8213b" }}>Inspiration</div>
-            <div className="space-y-1">
-              {INSPIRATION_NAV.map((n) => (
-                <button key={n.id} onClick={() => { setTab(n.id); setMore(false); }}
-                  className="w-full flex items-center gap-3 px-3 rounded-xl text-base font-medium text-left" style={{ minHeight: 48, color: tab === n.id ? "#fff" : "#1a1a1a", background: tab === n.id ? "linear-gradient(135deg, #a8213b, #881a30)" : "#fdf8f0" }}>
-                  <span className="text-lg">{n.icon}</span>{n.label}
-                </button>
-              ))}
-            </div>
+            <button onClick={() => { setMore(false); onReset(); }} className="text-sm text-gray-700 underline min-h-11">↺ Start over</button>
           </div>
         </div>
-      )}
-    </>
+      )}    </>
   );
 }
 
@@ -1931,17 +1925,28 @@ function ComingSoonTab({ icon, title, blurb }: { icon: string; title: string; bl
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 
+// What is kept in the browser between visits.
+interface SavedState {
+  plan: WeddingPlan; tab: Tab; allocation: BudgetAllocation; threads: Thread[]; activeThreadId: string; bookings: Booking[];
+  agent: AgentState; payments: Payment[]; guests: Guest[]; deliveries: Delivery[]; checklist: string[];
+}
+
 export default function App() {
-  const [plan, setPlan] = useState<WeddingPlan | null>(null);
-  const [tab, setTab] = useState<Tab>("dashboard");
-  const [allocation, setAllocation] = useState<BudgetAllocation>({} as BudgetAllocation);
+  // The couple's work is kept in this browser, so a refresh does not send them back to the start.
+  const [saved] = useState(() => loadSaved<SavedState>());
+  const [plan, setPlan] = useState<WeddingPlan | null>(saved.plan ?? null);
+  const [tab, setTab] = useState<Tab>(saved.tab ?? "dashboard");
+  const [allocation, setAllocation] = useState<BudgetAllocation>(saved.allocation ?? ({} as BudgetAllocation));
   // Conversations only exist once the couple (or the agent's suggestions) start them.
-  const [threads, setThreads] = useState<Thread[]>([]);
-  const [activeThreadId, setActiveThreadId] = useState("");
-  const [bookings, setBookings] = useState<Booking[]>([]);
-  const [agent, setAgent] = useState<AgentState>({ objective: "", result: null, applied: false });
+  const [threads, setThreads] = useState<Thread[]>(saved.threads ?? []);
+  const [activeThreadId, setActiveThreadId] = useState(saved.activeThreadId ?? "");
+  const [bookings, setBookings] = useState<Booking[]>(saved.bookings ?? []);
+  const [agent, setAgent] = useState<AgentState>(saved.agent ?? { objective: "", result: null, applied: false });
+  const [payments, setPayments] = useState<Payment[]>(saved.payments ?? []);
+  const [guests, setGuests] = useState<Guest[]>(saved.guests ?? []);
+  const [deliveries, setDeliveries] = useState<Delivery[]>(saved.deliveries ?? []);
   // Checklist is entirely the couple's call: nothing is ticked automatically.
-  const [checklistDone, setChecklistDone] = useState<Set<string>>(new Set());
+  const [checklistDone, setChecklistDone] = useState<Set<string>>(new Set(saved.checklist ?? []));
   const toggleCheck = (id: string) => setChecklistDone((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
   // The marketplace's cities come from the backend.
@@ -1966,6 +1971,24 @@ export default function App() {
 
   const unreadCount = threads.filter((t) => t.unread).length;
 
+  useEffect(() => {
+    if (!plan) return;
+    save({ plan, tab, allocation, threads, activeThreadId, bookings, agent, payments, guests, deliveries, checklist: [...checklistDone] } satisfies SavedState);
+  }, [plan, tab, allocation, threads, activeThreadId, bookings, agent, payments, guests, deliveries, checklistDone]);
+
+  const startOver = () => {
+    if (!window.confirm("Start over? This clears your plan, bookings, payments, guests, deliveries and messages from this browser.")) return;
+    clearSaved();
+    setPlan(null); setTab("dashboard"); setAllocation({} as BudgetAllocation); setThreads([]); setActiveThreadId("");
+    setBookings([]); setAgent({ objective: "", result: null, applied: false }); setPayments([]); setGuests([]); setDeliveries([]); setChecklistDone(new Set());
+  };
+
+  // From a chat: record the booking (if it is not one already) and go to its payment schedule.
+  const bookAndPay = (v: VendorRef) => {
+    if (v.estCost && !bookings.some((b) => b.vendorId === v.id)) toggleBook(v, v.estCost);
+    setTab("payments");
+  };
+
   const handleOnboard = (p: WeddingPlan) => {
     setPlan(p);
     setAllocation(mlAllocate(p.budget, p.guestCount));
@@ -1983,7 +2006,7 @@ export default function App() {
       const first = days[0].date, last = days[days.length - 1].date;
       const when = first === last ? short(first) : `${short(first)} to ${short(last)}`;
       const thread: Thread = {
-        id, sender: v.name, role: `${CATEGORY_META[v.category].label} · ${v.area}, ${v.city}`,
+        id, vendor: v, sender: v.name, role: `${CATEGORY_META[v.category].label} · ${v.area}, ${v.city}`,
         avatar: v.name[0], unread: false, lastTime: "New", messages: [],
         draft: `Hi ${v.name} team, we're ${plan.name} and ${plan.partnerName}. We're planning a ${days.length}-day wedding in ${v.city} (${when}) for about ${plan.guestCount} guests. Are you available on those dates, and could you share a quote for ${CATEGORY_META[v.category].label.toLowerCase()}? Thank you!`,
       };
@@ -2004,7 +2027,7 @@ export default function App() {
     <div className="flex h-dvh overflow-hidden relative" style={{ background: "#fdf8f0" }}>
       <Backdrop />
       <div className="relative hidden lg:flex" style={{ zIndex: 10 }}>
-        <Sidebar tab={tab} setTab={setTab} plan={plan} unreadCount={unreadCount} />
+        <Sidebar tab={tab} setTab={setTab} plan={plan} unreadCount={unreadCount} onReset={startOver} />
       </div>
       <div className="flex-1 min-w-0 flex flex-col relative" style={{ zIndex: 10 }}>
       <MobileTopBar plan={plan} />
@@ -2015,9 +2038,12 @@ export default function App() {
         {tab === "blogs"     && <BlogsTab onBrowseCity={(c) => { setMarketCity(c); setTab("vendors"); }} />}
         {tab === "budget"    && <BudgetTab plan={plan} allocation={allocation} setAllocation={setAllocation} />}
         {tab === "vendors"   && <VendorsTab plan={plan} cities={cities} city={shownCity} setCity={setMarketCity} bookings={bookings} onToggleBook={toggleBook} onMessage={messageVendor} />}
-        {tab === "messages"  && <MessagesTab plan={plan} threads={threads} setThreads={setThreads} activeId={activeThreadId} setActiveId={setActiveThreadId} onNavigate={setTab} />}
+        {tab === "messages"  && <MessagesTab plan={plan} threads={threads} setThreads={setThreads} activeId={activeThreadId} setActiveId={setActiveThreadId} onNavigate={setTab} bookings={bookings} onBookAndPay={bookAndPay} />}
+        {tab === "payments"   && <PaymentsTab plan={plan} bookings={bookings} allocation={allocation} payments={payments} setPayments={setPayments} onBrowse={() => setTab("vendors")} />}
+        {tab === "guests"     && <GuestsTab plan={plan} guests={guests} setGuests={setGuests} onGuestCount={(n) => setPlan({ ...plan, guestCount: n })} />}
+        {tab === "deliveries" && <DeliveriesTab plan={plan} bookings={bookings} deliveries={deliveries} setDeliveries={setDeliveries} />}
       </main>
-      <MobileTabBar tab={tab} setTab={setTab} plan={plan} unreadCount={unreadCount} />
+      <MobileTabBar tab={tab} setTab={setTab} plan={plan} unreadCount={unreadCount} onReset={startOver} />
       </div>
     </div>
   );
