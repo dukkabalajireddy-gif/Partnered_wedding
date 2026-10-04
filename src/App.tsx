@@ -8,6 +8,7 @@ import VendorDesk from "./VendorDesk";
 import { ListenButton, MicButton, VoiceLangToggle, useVoiceReady } from "./VoiceUI";
 import { BADGE_STYLE, vendorBadges, vendorInsights, type Badge } from "./vendorInsights";
 import KnowPartner from "./KnowPartner";
+import RefundPolicy from "./RefundPolicy";
 import { CD_VENDOR_ID, buildCdPayments, cdAvailable, cdFee, vendorPool } from "./shared";
 import {
   API_BASE, BUDGET_BANDS, CATEGORY_META, daysBetween, GUESTS_UNSURE, GUEST_BANDS, INBOX_KEY, WEDDING_STYLES, addDays, dateLabel, isTentative, monthYear, INPUT_STYLE, PRIMARY_BTN, clearSaved, clearSession, formatDay, getSession, inr, isoDate, loadSaved, prettyPhone, readInbox, save, setSession, upsertConversation,
@@ -614,7 +615,7 @@ function OnboardingScreen({ cities, onComplete }: { cities: CityInfo[]; onComple
 
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
 
-type Tab = "dashboard" | "budget" | "vendors" | "messages" | "payments" | "guests" | "deliveries" | "stories" | "blogs" | "partner";
+type Tab = "dashboard" | "budget" | "vendors" | "messages" | "payments" | "guests" | "deliveries" | "stories" | "blogs" | "partner" | "refunds";
 const NAV: { id: Tab; label: string; icon: string }[] = [
   { id: "dashboard", label: "Overview",  icon: "◈" },
   { id: "budget",    label: "Budget",    icon: "◎" },
@@ -630,6 +631,7 @@ const INSPIRATION_NAV: { id: Tab; label: string; icon: string }[] = [
   { id: "stories", label: "Success Stories", icon: "❀" },
   { id: "blogs",   label: "Blogs",           icon: "✐" },
   { id: "partner", label: "Know your Partner", icon: "♡" },
+  { id: "refunds", label: "Refund policy", icon: "↺" },
 ];
 
 // Our three partners, shown by name. Official logos can replace these once each partner has agreed to it.
@@ -2888,6 +2890,7 @@ function CoupleApp({ session, onLogout, onSwitchRole }: { session: Session; onLo
           threads={threads} onRequestQuotes={requestQuotes} onBook={bookAt} tutorial={tutorial} setTutorial={setTutorial} onEditBudget={editBudget} />}
         {tab === "stories"   && <ComingSoonTab icon="❀" title="Success Stories" blurb="Real weddings planned on Partnered." />}
         {tab === "partner"   && <KnowPartner plan={plan} onHire={() => { editPlan({ ...plan, creativeDirector: true }); setTab("payments"); }} onPayments={() => setTab("payments")} onVendors={() => setTab("vendors")} />}
+        {tab === "refunds"   && <RefundPolicy onPayments={() => setTab("payments")} />}
         {tab === "blogs"     && <BlogsTab onBrowseCity={(c) => { setMarketCity(c); setTab("vendors"); }} />}
         {tab === "budget"    && <BudgetTab plan={plan} allocation={allocation} setAllocation={setOwnAllocation} resetAllocation={resetAllocation} onVendors={() => setTab("vendors")} onPayments={() => setTab("payments")} onCreativeDirector={(on) => { editPlan({ ...plan, creativeDirector: on }); if (on) setTab("payments"); }} />}
         {tab === "vendors"   && <VendorsTab plan={plan} cities={cities} city={shownCity} setCity={setMarketCity} bookings={bookings} onToggleBook={toggleBook} onMessage={messageVendor} allocation={allocation} agent={agent} />}
