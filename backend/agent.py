@@ -48,6 +48,7 @@ class PlanIn(BaseModel):
     radiusKm: int | None = None
     dateMode: str | None = None       # "exact", "month" or "unsure"
     diet: str | None = None           # "veg" (vegetarian only), "both" or "unsure"
+    creativeDirectorFee: int = 0      # what the couple pays Partnered for a creative director (fee plus GST): it comes out of the budget
 
 # How each wedding style nudges the budget towards the categories that make it look and feel that way.
 STYLE_BOOST = {
@@ -241,9 +242,11 @@ def run_agent(req: RunIn):
         events.append({"step": step, "title": title, "detail": detail, "status": status, "data": data or {}})
 
     # 1. Envelope
-    env = make_envelope(plan.budget, plan.guestCount)
+    cd_fee = max(0, min(plan.creativeDirectorFee, plan.budget // 2))
+    env = make_envelope(plan.budget - cd_fee, plan.guestCount)
     log(1, "Create the budget envelope",
-        f"{inr(env['total'])} total, with {inr(env['reserve'])} (5%) held back as a contingency reserve, leaving {inr(env['allocatable'])} to allocate. "
+        (f"{inr(cd_fee)} of your {inr(plan.budget)} goes to your Partnered creative director (fee plus GST). " if cd_fee else "")
+        + f"{inr(env['total'])} {'for vendors' if cd_fee else 'total'}, with {inr(env['reserve'])} (5%) held back as a contingency reserve, leaving {inr(env['allocatable'])} to allocate. "
         f"That is {inr(env['perGuest'])} per guest. {env['message']}",
         "warn" if env["level"] in ("tight", "very_tight") else "done", env)
 

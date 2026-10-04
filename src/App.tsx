@@ -7,6 +7,8 @@ import LoginScreen from "./Auth";
 import VendorDesk from "./VendorDesk";
 import { ListenButton, MicButton, VoiceLangToggle, useVoiceReady } from "./VoiceUI";
 import { BADGE_STYLE, vendorBadges, vendorInsights, type Badge } from "./vendorInsights";
+import KnowPartner from "./KnowPartner";
+import { CD_VENDOR_ID, buildCdPayments, cdAvailable, cdFee, vendorPool } from "./shared";
 import {
   API_BASE, BUDGET_BANDS, CATEGORY_META, daysBetween, GUESTS_UNSURE, GUEST_BANDS, INBOX_KEY, WEDDING_STYLES, addDays, dateLabel, isTentative, monthYear, INPUT_STYLE, PRIMARY_BTN, clearSaved, clearSession, formatDay, getSession, inr, isoDate, loadSaved, prettyPhone, readInbox, save, setSession, upsertConversation,
   REPLY_DELAY_MS, autopilotOn, latestQuote, AUTOPILOT_KEY,
@@ -224,16 +226,24 @@ function ScheduleBuilder({ rituals, days, onChange }: { rituals: string[]; days:
   );
 }
 
-// An optional tick box: a creative director shapes the overall look across all your events.
-function CreativeDirectorChoice({ value, onChange }: { value: boolean | undefined; onChange: (v: boolean) => void }) {
+// Adding a Partnered creative director: a paid service from Partnered itself, with the fee shown up front.
+function CreativeDirectorChoice({ value, onChange, budget }: { value: boolean | undefined; onChange: (v: boolean) => void; budget: number | undefined }) {
+  const fee = budget && cdAvailable(budget) ? cdFee(budget) : null;
   return (
-    <label className="flex items-start gap-3 rounded-xl px-4 py-3 cursor-pointer min-h-12" style={{ background: value ? "#fdf2f4" : "#fff", border: value ? "1px solid #a8213b" : "1px solid #f5c6d0" }}>
-      <input type="checkbox" checked={value === true} onChange={(e) => onChange(e.target.checked)} className="w-5 h-5 mt-0.5 accent-[#a8213b] shrink-0" />
-      <span className="min-w-0">
-        <span className="block text-base font-medium text-gray-800">I'd like a creative director to guide me <span className="font-normal text-gray-700">(optional)</span></span>
-        <span className="block text-sm text-gray-700 mt-0.5">Someone to shape the overall look across your events. It's added to your checklist, and decor gets a little more of your budget.</span>
-      </span>
-    </label>
+    <div className="rounded-xl px-4 py-3 space-y-2.5" style={{ background: value && fee ? "#fdf2f4" : "#fff", border: value && fee ? "1px solid #a8213b" : "1px solid #f5c6d0" }}>
+      <label className={`flex items-start gap-3 min-h-12 ${fee ? "cursor-pointer" : "opacity-70"}`}>
+        <input type="checkbox" checked={value === true && !!fee} disabled={!fee} onChange={(e) => onChange(e.target.checked)} className="w-5 h-5 mt-0.5 accent-[#a8213b] shrink-0" />
+        <span className="min-w-0">
+          <span className="block text-base font-medium text-gray-800">Add a Partnered creative director <span className="font-normal text-gray-700">(optional)</span></span>
+          <span className="block text-sm text-gray-700 mt-0.5">A person from our team who is with you on the ground from day one: shaping the look across your events, keeping vendors on time and looking after the day, so you don't have to.</span>
+        </span>
+      </label>
+      {fee ? (
+        <div className="rounded-lg p-3 text-sm text-gray-800 leading-relaxed" style={{ background: "#fff7d6", border: "1px solid #e8c75a" }}>
+          <span className="font-semibold">{inr(fee.total)}</span> including GST ({fee.percent}% of your budget). Pay <span className="font-semibold">{inr(fee.advance)}</span> now and <span className="font-semibold">{inr(fee.balance)}</span> on day one, when your director arrives. The fee comes out of your total budget.
+        </div>
+      ) : budget ? <div className="text-sm text-gray-700">Available for budgets of ₹2,50,000 and above.</div> : null}
+    </div>
   );
 }
 // Edit your events, the day-by-day schedule and the creative director choice after onboarding.
@@ -268,7 +278,7 @@ function EditEventsModal({ plan, onSave, onClose }: { plan: WeddingPlan; onSave:
           <ScheduleBuilder rituals={rituals} days={days} onChange={setDays} />
         </div>
 
-        <CreativeDirectorChoice value={director} onChange={setDirector} />
+        <CreativeDirectorChoice value={director} budget={plan.budget} onChange={setDirector} />
 
         {message && <div className="text-sm font-medium" style={{ color: "#a8213b" }}>{message}</div>}
         <div className="flex gap-3">
@@ -572,7 +582,7 @@ function OnboardingScreen({ cities, onComplete }: { cities: CityInfo[]; onComple
             <div className="space-y-5">
               <div>
                 <h2 className="text-2xl font-medium text-gray-800 mb-1">What's your wedding style?</h2>
-                <p className="text-sm text-gray-600">Pick up to three that feel like you. <span className="font-medium">{(form.styles ?? []).length} of 3 chosen.</span></p>
+                <p className="text-sm text-gray-600">Pick one to three that feel like you. <span className="font-medium">{(form.styles ?? []).length} of 3 chosen.</span></p>
               </div>
               <div className="grid grid-cols-2 gap-2.5">
                 {WEDDING_STYLES.map((s) => {
@@ -589,11 +599,10 @@ function OnboardingScreen({ cities, onComplete }: { cities: CityInfo[]; onComple
                   );
                 })}
               </div>
-              <button type="button" onClick={() => setForm((f) => ({ ...f, styles: [] }))} className="text-sm underline text-gray-800 min-h-11">Not sure yet, I'll decide later</button>
-              <CreativeDirectorChoice value={form.creativeDirector} onChange={(v) => setForm((f) => ({ ...f, creativeDirector: v }))} />
+              <CreativeDirectorChoice value={form.creativeDirector} budget={form.budget} onChange={(v) => setForm((f) => ({ ...f, creativeDirector: v }))} />
               <div className="flex gap-3">
                 <button className="flex-1 rounded-xl py-3 font-medium text-sm" style={{ border: "1px solid #f5c6d0", color: "#a8213b" }} onClick={() => setStep(3)}>Back</button>
-                <button className="flex-[2] text-white rounded-xl py-3 font-medium text-sm sparkle-btn" style={PRIMARY_BTN}
+                <button disabled={(form.styles ?? []).length === 0} className="flex-[2] text-white rounded-xl py-3 font-medium text-sm sparkle-btn disabled:opacity-50" style={PRIMARY_BTN}
                   onClick={() => onComplete({ ...form, creativeDirector: form.creativeDirector ?? false, schedule: finalizeSchedule(days), dateMode: form.dateMode ?? "exact", sameVenue: form.sameVenue ?? "unsure", diet: form.diet ?? "unsure", styles: form.styles ?? [], radiusKm: form.radiusKm ?? null } as WeddingPlan)}>Shubh Aarambh ✨</button>
               </div>
             </div>
@@ -605,7 +614,7 @@ function OnboardingScreen({ cities, onComplete }: { cities: CityInfo[]; onComple
 
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
 
-type Tab = "dashboard" | "budget" | "vendors" | "messages" | "payments" | "guests" | "deliveries" | "stories" | "blogs";
+type Tab = "dashboard" | "budget" | "vendors" | "messages" | "payments" | "guests" | "deliveries" | "stories" | "blogs" | "partner";
 const NAV: { id: Tab; label: string; icon: string }[] = [
   { id: "dashboard", label: "Overview",  icon: "◈" },
   { id: "budget",    label: "Budget",    icon: "◎" },
@@ -620,6 +629,7 @@ const MANAGE_NAV: { id: Tab; label: string; icon: string }[] = [
 const INSPIRATION_NAV: { id: Tab; label: string; icon: string }[] = [
   { id: "stories", label: "Success Stories", icon: "❀" },
   { id: "blogs",   label: "Blogs",           icon: "✐" },
+  { id: "partner", label: "Know your Partner", icon: "♡" },
 ];
 
 // Our three partners, shown by name. Official logos can replace these once each partner has agreed to it.
@@ -771,7 +781,7 @@ const OTHER_CHECKS: CheckItem[] = [
 function checklistFor(plan: WeddingPlan): CheckItem[] {
   return [
     ...VENDOR_CHECKS,
-    ...(plan.creativeDirector ? [{ id: "director", text: "Creative director finalised" }] : []),
+    ...(plan.creativeDirector ? [{ id: "director", text: "Meet your Partnered creative director" }] : []),
     ...OTHER_CHECKS,
   ];
 }
@@ -994,7 +1004,11 @@ function DashboardTab({ plan, allocation, bookings, checklistDone, onToggleCheck
               ))}
             </div>
             <div className="mt-5 pt-4 text-sm text-gray-700" style={{ borderTop: "1px solid #fbe8ec" }}>
-              🎨 Creative director: <span className="font-medium">{plan.creativeDirector ? "Yes, added to your checklist" : "Not needed"}</span>
+              🎨 Partnered creative director:{" "}
+              {plan.creativeDirector && cdAvailable(plan.budget)
+                ? <span className="font-medium">Yes · {inr(cdFee(plan.budget).total)} incl. GST, 50% now and 50% on day one <button onClick={() => setTab("payments")} className="ml-1 underline font-medium min-h-9" style={{ color: "#a8213b" }}>Pay advance →</button></span>
+                : <span className="font-medium">Not added <button onClick={() => { onEditPlan({ ...plan, creativeDirector: true }); setTab("payments"); }} disabled={!cdAvailable(plan.budget)} className="ml-1 underline font-medium min-h-9 disabled:opacity-50" style={{ color: "#a8213b" }}>Add one →</button></span>}
+              <button onClick={() => setTab("partner")} className="ml-2 text-xs underline text-gray-700 min-h-9">What is this?</button>
             </div>
             {(plan.styles?.length ?? 0) > 0 && (
               <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-gray-700">
@@ -1116,9 +1130,12 @@ const LOW_TIP: Record<Category, string> = {
 
 type Extreme = { k: Category; value: number; before: BudgetAllocation; kind: "high" | "low" };
 
-function BudgetTab({ plan, allocation, setAllocation, resetAllocation, onVendors }: {
+function BudgetTab({ plan, allocation, setAllocation, resetAllocation, onVendors, onPayments, onCreativeDirector }: {
   plan: WeddingPlan; allocation: BudgetAllocation; setAllocation: (a: BudgetAllocation) => void; resetAllocation: () => void; onVendors: () => void;
+  onPayments: () => void; onCreativeDirector: (on: boolean) => void;
 }) {
+  const pool = vendorPool(plan); // what is left for vendors once a creative director is added
+  const cd = plan.creativeDirector && cdAvailable(plan.budget) ? cdFee(plan.budget) : null;
   const [editing, setEditing] = useState<Category | null>(null);
   const [editVal, setEditVal] = useState("");
   const [certOpen, setCertOpen] = useState(false);
@@ -1127,25 +1144,25 @@ function BudgetTab({ plan, allocation, setAllocation, resetAllocation, onVendors
   const dragStart = useRef<BudgetAllocation | null>(null); // the budget as it was before a slider was picked up
 
   const totalAllocated = Object.values(allocation).reduce((a, b) => a + b, 0);
-  const remaining = plan.budget - totalAllocated;
+  const remaining = pool - totalAllocated;
   const overBudget = remaining < 0;
-  const underBudget = remaining > plan.budget * 0.05;
+  const underBudget = remaining > pool * 0.05;
   const days = Math.max(1, plan.schedule.length);
 
   const [lockTotal, setLockTotal] = useState(true);
 
   // What the AI would suggest, and what to compare a category against
-  const mlSuggestion = mlAllocate(plan.budget, plan.guestCount);
+  const mlSuggestion = mlAllocate(pool, plan.guestCount);
   const flags = (Object.keys(allocation) as Category[]).filter((k) => Math.abs(allocation[k] - mlSuggestion[k]) > mlSuggestion[k] * 0.25);
 
   // Work out the budget after setting one category; with "lock total" on, spread the difference across the others
   // in proportion to their current size so the total stays equal to the budget.
   const withCategory = (base: BudgetAllocation, k: Category, raw: number) => {
-    const value = Math.min(plan.budget, Math.max(0, Math.round(raw)));
+    const value = Math.min(pool, Math.max(0, Math.round(raw)));
     const next = { ...base, [k]: value };
     if (lockTotal) {
       const others = (Object.keys(base) as Category[]).filter((c) => c !== k);
-      const target = plan.budget - value;
+      const target = pool - value;
       const othersSum = others.reduce((a, c) => a + base[c], 0);
       others.forEach((c) => { next[c] = othersSum > 0 ? Math.round((base[c] / othersSum) * target) : Math.round(target / others.length); });
       const drift = target - others.reduce((a, c) => a + next[c], 0);
@@ -1159,8 +1176,8 @@ function BudgetTab({ plan, allocation, setAllocation, resetAllocation, onVendors
   // After a slider is let go (or a number typed), is the result so far from a realistic plan that we should say so?
   const checkExtreme = (k: Category, value: number, before: BudgetAllocation) => {
     const ml = mlSuggestion[k];
-    if (value >= ml * 1.9 && value - ml >= plan.budget * 0.08) setExtreme({ k, value, before, kind: "high" });
-    else if (value <= ml * 0.4 && ml - value >= plan.budget * 0.03) setExtreme({ k, value, before, kind: "low" });
+    if (value >= ml * 1.9 && value - ml >= pool * 0.08) setExtreme({ k, value, before, kind: "high" });
+    else if (value <= ml * 0.4 && ml - value >= pool * 0.03) setExtreme({ k, value, before, kind: "low" });
   };
 
   const saveEdit = (k: Category) => {
@@ -1173,18 +1190,18 @@ function BudgetTab({ plan, allocation, setAllocation, resetAllocation, onVendors
 
   // The note shown inside the pop-up: what it costs the rest of the budget, or what the squeeze means
   const extremeText = (e: Extreme) => {
-    const pct = Math.round((e.value / plan.budget) * 100);
+    const pct = Math.round((e.value / pool) * 100);
     const meta = CATEGORY_META[e.k];
     if (e.kind === "high") {
-      const othersBefore = plan.budget - e.before[e.k];
-      const othersAfter = plan.budget - e.value;
+      const othersBefore = pool - e.before[e.k];
+      const othersAfter = pool - e.value;
       const shrink = othersBefore > 0 ? Math.round((1 - othersAfter / othersBefore) * 100) : 0;
       return {
         title: "This might not work",
         lead: `You've put ${inr(e.value)} (${pct}% of your total) into ${meta.label}. For ${plan.guestCount} guests, weddings like yours usually spend ${inr(Math.round(mlSuggestion[e.k] * 0.75))} to ${inr(Math.round(mlSuggestion[e.k] * 1.3))} here.`,
         why: lockTotal
           ? `To pay for it, every other category would have to shrink by about ${shrink}%. That usually leaves something essential underfunded.`
-          : `With "Total locked" off, this takes your plan ${inr(Math.max(0, totalAllocated - plan.budget))} past your total budget.`,
+          : `With "Total locked" off, this takes your plan ${inr(Math.max(0, totalAllocated - pool))} past your total budget.`,
         tip: OVER_TIPS[e.k],
       };
     }
@@ -1228,6 +1245,21 @@ function BudgetTab({ plan, allocation, setAllocation, resetAllocation, onVendors
     </div>
   );
 
+  const cdCard = cd ? (
+    <div className="rounded-2xl p-4 sm:p-5 space-y-2" style={{ background: "linear-gradient(135deg, #fff7d6, #fdf2f4)", border: "2px solid #c08a0c" }}>
+      <h3 className="text-sm font-semibold uppercase tracking-wider" style={{ color: "#a8213b" }}>🎨 Your Partnered creative director</h3>
+      <div className="text-2xl font-semibold" style={{ color: "#a8213b" }}>{inr(cd.total)}</div>
+      <p className="text-sm text-gray-800 leading-relaxed">{cd.percent}% of your budget, plus {inr(cd.gst)} GST. {inr(cd.advance)} now and {inr(cd.balance)} on day one. This comes out of your total, leaving {inr(pool)} for vendors.</p>
+      <button onClick={onPayments} className="text-sm font-medium underline min-h-9" style={{ color: "#a8213b" }}>See payments →</button>
+    </div>
+  ) : cdAvailable(plan.budget) ? (
+    <div className="bg-white rounded-2xl p-4 sm:p-5 space-y-2" style={{ border: "1px solid #f5c6d0" }}>
+      <h3 className="text-sm font-semibold uppercase tracking-wider" style={{ color: "#a8213b" }}>🎨 Want a person on the ground?</h3>
+      <p className="text-sm text-gray-800 leading-relaxed">A Partnered creative director looks after the look and the day for {inr(cdFee(plan.budget).total)} including GST ({cdFee(plan.budget).percent}% of your budget).</p>
+      <button onClick={() => onCreativeDirector(true)} className="w-full text-white rounded-xl py-3 text-sm font-medium" style={PRIMARY_BTN}>Add a creative director</button>
+    </div>
+  ) : null;
+
   const glance = (
     <div className="bg-white rounded-2xl p-4 sm:p-5 space-y-3" style={{ border: "1px solid #fbe8ec" }}>
       <h3 className="text-sm font-semibold uppercase tracking-wider" style={{ color: "#a8213b" }}>Your budget at a glance</h3>
@@ -1256,7 +1288,7 @@ function BudgetTab({ plan, allocation, setAllocation, resetAllocation, onVendors
         <span className="text-xs text-gray-700 group-open:hidden">Show</span>
       </summary>
       <p className="text-sm text-gray-700 leading-relaxed mt-3">
-        We analysed thousands of Indian weddings with {plan.guestCount} guests. Catering takes {Math.round((mlSuggestion.catering / plan.budget) * 100)}% of the AI plan, because hospitality is the heart of an Indian wedding. Allocations shift for destination weddings, large baraats and intimate gatherings. Edit any category; the indicator flags it when you move far from our recommendation.
+        We analysed thousands of Indian weddings with {plan.guestCount} guests. Catering takes {Math.round((mlSuggestion.catering / pool) * 100)}% of the AI plan, because hospitality is the heart of an Indian wedding. Allocations shift for destination weddings, large baraats and intimate gatherings. Edit any category; the indicator flags it when you move far from our recommendation.
       </p>
     </details>
   );
@@ -1294,24 +1326,25 @@ function BudgetTab({ plan, allocation, setAllocation, resetAllocation, onVendors
             <div className="flex items-center justify-between mb-3">
               <span className="text-sm font-medium text-gray-700">Total Allocated</span>
               <span className="text-sm font-semibold" style={{ color: overBudget ? "#c93a52" : "#a8213b" }}>
-                {inr(totalAllocated)} / {inr(plan.budget)}
+                {inr(totalAllocated)} / {inr(pool)}
               </span>
             </div>
             <div className="h-3 rounded-full overflow-hidden" style={{ background: "#fdf2f4" }}>
               <div className="h-full rounded-full transition-all" style={{
-                width: `${Math.min(110, (totalAllocated / plan.budget) * 100)}%`,
+                width: `${Math.min(110, (totalAllocated / pool) * 100)}%`,
                 background: overBudget ? "linear-gradient(to right, #c93a52, #a8213b)" : "linear-gradient(to right, #a8213b, #c08a0c)"
               }} />
             </div>
             <div className={`mt-2 text-sm font-medium ${overBudget ? "text-red-600" : underBudget ? "text-amber-700" : "text-gray-700"}`}>
               {overBudget ? `⚠ ${inr(Math.abs(remaining))} over budget` : underBudget ? `✦ ${inr(remaining)} still unallocated` : `✓ Budget fully allocated`}
             </div>
+            {cd && <div className="mt-2 text-sm text-gray-700">Your {inr(plan.budget)} total = {inr(pool)} for vendors + {inr(cd.total)} for your Partnered creative director.</div>}
             <div className="mt-4 grid grid-cols-1 min-[420px]:grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-2">
               {(Object.keys(allocation) as Category[]).map((k) => (
                 <div key={k} className="flex items-center gap-2 min-w-0">
                   <div className="w-2 h-2 rounded-full shrink-0" style={{ background: CATEGORY_META[k].color }} />
                   <span className="text-xs text-gray-700 truncate">{CATEGORY_META[k].label}</span>
-                  <span className="text-xs text-gray-600 ml-auto">{Math.round((allocation[k] / plan.budget) * 100)}%</span>
+                  <span className="text-xs text-gray-600 ml-auto">{Math.round((allocation[k] / pool) * 100)}%</span>
                 </div>
               ))}
             </div>
@@ -1351,7 +1384,7 @@ function BudgetTab({ plan, allocation, setAllocation, resetAllocation, onVendors
                         style={{ color: "#a8213b" }}>edit</button>
                     </div>
                   )}
-                  <input type="range" min={0} max={plan.budget} step={5000} value={allocation[k]}
+                  <input type="range" min={0} max={pool} step={5000} value={allocation[k]}
                     onChange={(e) => updateCategory(k, Number(e.target.value))}
                     onPointerDown={() => { dragStart.current = allocation; }}
                     onKeyDown={() => { if (!dragStart.current) dragStart.current = allocation; }}
@@ -1359,9 +1392,9 @@ function BudgetTab({ plan, allocation, setAllocation, resetAllocation, onVendors
                     onKeyUp={() => { if (dragStart.current) { checkExtreme(k, allocation[k], dragStart.current); dragStart.current = null; } }}
                     aria-label={`${CATEGORY_META[k].label} budget`}
                     className="budget-slider mt-3 w-full cursor-pointer"
-                    style={{ "--c": CATEGORY_META[k].color, "--p": `${(allocation[k] / plan.budget) * 100}%` } as React.CSSProperties} />
+                    style={{ "--c": CATEGORY_META[k].color, "--p": `${(allocation[k] / pool) * 100}%` } as React.CSSProperties} />
                   <div className="text-xs text-gray-600 mt-1">
-                    {Math.round((allocation[k] / plan.budget) * 100)}% · AI suggests {inr(mlSuggestion[k])}
+                    {Math.round((allocation[k] / pool) * 100)}% · AI suggests {inr(mlSuggestion[k])}
                   </div>
                 </div>
               );
@@ -1371,6 +1404,7 @@ function BudgetTab({ plan, allocation, setAllocation, resetAllocation, onVendors
 
         <div className="xl:col-span-4 space-y-5 sm:space-y-6 min-w-0 xl:sticky xl:top-4">
           <div className="hidden xl:block">{ideas}</div>
+          {cdCard}
           {glance}
           {why}
         </div>
@@ -1430,7 +1464,7 @@ function BudgetTab({ plan, allocation, setAllocation, resetAllocation, onVendors
                 </div>
                 <div className="bg-white rounded-xl p-3" style={{ border: "1px solid #f5c6d0" }}>
                   <div className="text-xs text-gray-400">Largest Category</div>
-                  <div className="font-semibold text-sm" style={{ color: "#a8213b" }}>Catering ({Math.round((allocation.catering / plan.budget) * 100)}%)</div>
+                  <div className="font-semibold text-sm" style={{ color: "#a8213b" }}>Catering ({Math.round((allocation.catering / pool) * 100)}%)</div>
                 </div>
               </div>
               <div className="text-xs text-gray-400">{overBudget ? "⚠ Allocation exceeds total budget — review categories." : "✓ Budget is balanced and AI-optimised."}</div>
@@ -2168,7 +2202,7 @@ function AgentPanel({ plan, agent, setAgent, setAllocation, completed, onMessage
     try {
       const res = await fetch(`${API_BASE}/api/agent/run`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan, objective: agent.objective, completed, allocation: budgetTouched ? allocation : undefined }),
+        body: JSON.stringify({ plan: { ...plan, creativeDirectorFee: plan.creativeDirector && cdAvailable(plan.budget) ? cdFee(plan.budget).total : 0 }, objective: agent.objective, completed, allocation: budgetTouched ? allocation : undefined }),
       });
       if (!res.ok) throw new Error(`The agent returned an error (${res.status}).`);
       const data: AgentResult = await res.json();
@@ -2608,19 +2642,45 @@ function CoupleApp({ session, onLogout, onSwitchRole }: { session: Session; onLo
 
   // Any change the couple makes to the budget on purpose
   const setOwnAllocation = (a: BudgetAllocation) => { setAllocation(a); setBudgetTouched(true); };
-  // A new total: every category moves by the same proportion
-  const editBudget = (n: number) => {
-    if (!plan) return;
-    const keys = Object.keys(allocation) as Category[];
-    const scaled = {} as BudgetAllocation;
-    keys.forEach((k) => { scaled[k] = Math.round((allocation[k] * n) / plan.budget); });
-    const drift = n - keys.reduce((a, k) => a + scaled[k], 0);
-    const largest = keys.reduce((a, k) => (scaled[k] > scaled[a] ? k : a), keys[0]);
-    if (largest) scaled[largest] = Math.max(0, scaled[largest] + drift);
-    setAllocation(scaled);
-    setPlan({ ...plan, budget: n, budgetBand: undefined });
+  // Any change to the plan. If the part of the budget left for vendors changes (a new total, or a creative director
+  // added or removed), every category budget moves by the same proportion.
+  const editPlan = (p: WeddingPlan) => {
+    if (plan) {
+      const from = vendorPool(plan), to = vendorPool(p);
+      if (from !== to && from > 0) {
+        const keys = Object.keys(allocation) as Category[];
+        const scaled = {} as BudgetAllocation;
+        keys.forEach((k) => { scaled[k] = Math.round((allocation[k] * to) / from); });
+        const drift = to - keys.reduce((a, k) => a + scaled[k], 0);
+        const largest = keys.reduce((a, k) => (scaled[k] > scaled[a] ? k : a), keys[0]);
+        if (largest) scaled[largest] = Math.max(0, scaled[largest] + drift);
+        setAllocation(scaled);
+      }
+    }
+    setPlan(p);
   };
-  const resetAllocation = () => { if (plan) setAllocation(mlAllocate(plan.budget, plan.guestCount)); setBudgetTouched(false); };
+  const editBudget = (n: number) => { if (plan) editPlan({ ...plan, budget: n, budgetBand: undefined }); };
+
+  // The creative director fee is paid to Partnered in two halves. Keep those payments in step with the plan until the advance is paid.
+  useEffect(() => {
+    if (!plan) return;
+    const wanted = plan.creativeDirector && cdAvailable(plan.budget);
+    setPayments((ps) => {
+      const mine = ps.filter((x) => x.kind === "service");
+      const anyPaid = mine.some((x) => x.status === "paid");
+      if (!wanted) return mine.length && !anyPaid ? ps.filter((x) => x.kind !== "service") : ps;
+      const fresh = buildCdPayments(plan);
+      if (mine.length === 0) return [...ps, ...fresh];
+      if (anyPaid) { // the fee is locked, but the balance follows the first day of the wedding
+        const first = fresh[1].dueDate;
+        return ps.map((x) => (x.kind === "service" && x.status === "due" && x.dueDate !== first && /^Balance/.test(x.label) ? { ...x, dueDate: first } : x));
+      }
+      const same = mine.length === 2 && mine[0].amount === fresh[0].amount && mine[1].amount === fresh[1].amount && mine[1].dueDate === fresh[1].dueDate;
+      return same ? ps : [...ps.filter((x) => x.kind !== "service"), ...fresh];
+    });
+  }, [plan?.creativeDirector, plan?.budget, plan?.date, plan?.schedule]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const resetAllocation = () => { if (plan) setAllocation(mlAllocate(vendorPool(plan), plan.guestCount)); setBudgetTouched(false); };
 
   useEffect(() => {
     if (!plan) return;
@@ -2764,7 +2824,7 @@ function CoupleApp({ session, onLogout, onSwitchRole }: { session: Session; onLo
     setPlan(p);
     setTutorial("intro");
     setTab("dashboard");
-    setAllocation(mlAllocate(p.budget, p.guestCount));
+    setAllocation(mlAllocate(vendorPool(p), p.guestCount));
     setAgent({ objective: defaultObjective(p), result: null, applied: false });
   };
 
@@ -2824,11 +2884,12 @@ function CoupleApp({ session, onLogout, onSwitchRole }: { session: Session; onLo
       <MobileTopBar plan={plan} />
       <main className="flex-1 overflow-y-auto relative min-h-0">
         {tab === "dashboard" && <DashboardTab plan={plan} allocation={allocation} bookings={bookings} checklistDone={checklistDone} onToggleCheck={toggleCheck}
-          agent={agent} setAgent={setAgent} setAllocation={setOwnAllocation} budgetTouched={budgetTouched} setTab={setTab} onEditPlan={setPlan} onMessage={messageVendor}
+          agent={agent} setAgent={setAgent} setAllocation={setOwnAllocation} budgetTouched={budgetTouched} setTab={setTab} onEditPlan={editPlan} onMessage={messageVendor}
           threads={threads} onRequestQuotes={requestQuotes} onBook={bookAt} tutorial={tutorial} setTutorial={setTutorial} onEditBudget={editBudget} />}
         {tab === "stories"   && <ComingSoonTab icon="❀" title="Success Stories" blurb="Real weddings planned on Partnered." />}
+        {tab === "partner"   && <KnowPartner plan={plan} onHire={() => { editPlan({ ...plan, creativeDirector: true }); setTab("payments"); }} onPayments={() => setTab("payments")} onVendors={() => setTab("vendors")} />}
         {tab === "blogs"     && <BlogsTab onBrowseCity={(c) => { setMarketCity(c); setTab("vendors"); }} />}
-        {tab === "budget"    && <BudgetTab plan={plan} allocation={allocation} setAllocation={setOwnAllocation} resetAllocation={resetAllocation} onVendors={() => setTab("vendors")} />}
+        {tab === "budget"    && <BudgetTab plan={plan} allocation={allocation} setAllocation={setOwnAllocation} resetAllocation={resetAllocation} onVendors={() => setTab("vendors")} onPayments={() => setTab("payments")} onCreativeDirector={(on) => { editPlan({ ...plan, creativeDirector: on }); if (on) setTab("payments"); }} />}
         {tab === "vendors"   && <VendorsTab plan={plan} cities={cities} city={shownCity} setCity={setMarketCity} bookings={bookings} onToggleBook={toggleBook} onMessage={messageVendor} allocation={allocation} agent={agent} />}
         {tab === "messages"  && <MessagesTab plan={plan} threads={threads} setThreads={setThreads} activeId={activeThreadId} setActiveId={setActiveThreadId} onNavigate={setTab} bookings={bookings} onBookAndPay={bookAndPay} typing={typing} />}
         {tab === "payments"   && <PaymentsTab plan={plan} bookings={bookings} allocation={allocation} payments={payments} setPayments={setPayments} onBrowse={() => setTab("vendors")} customer={{ name: plan.name, phone, email: session.email }} />}

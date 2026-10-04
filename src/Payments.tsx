@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  API_BASE, CATEGORY_META, PAY_SPLITS, PRIMARY_BTN, addDays, buildPayments, daysBetween, formatDay, inr, isoDate, shortDay,
+  API_BASE, CD_GST, CATEGORY_META, PAY_SPLITS, PRIMARY_BTN, addDays, buildPayments, daysBetween, formatDay, inr, isoDate, shortDay,
   type BudgetAllocation, type Booking, type Category, type Payment, type PaySplit, type WeddingPlan,
 } from "./shared";
 
@@ -195,7 +195,7 @@ export default function PaymentsTab({ plan, bookings, allocation, payments, setP
   // Every booking gets a payment schedule. Unpaid instalments for a booking that was undone are dropped.
   useEffect(() => {
     setPayments((ps) => {
-      const kept = ps.filter((p) => p.status === "paid" || bookings.some((b) => b.vendorId === p.vendorId));
+      const kept = ps.filter((p) => p.status === "paid" || p.kind === "service" || bookings.some((b) => b.vendorId === p.vendorId));
       const fresh = bookings.filter((b) => !kept.some((p) => p.vendorId === b.vendorId)).flatMap((b) => buildPayments(b, plan.date, "30-40-30"));
       return fresh.length || kept.length !== ps.length ? [...kept, ...fresh] : ps;
     });
@@ -203,6 +203,12 @@ export default function PaymentsTab({ plan, bookings, allocation, payments, setP
 
   const changeSplit = (b: Booking, split: PaySplit) =>
     setPayments((ps) => [...ps.filter((p) => p.vendorId !== b.vendorId), ...buildPayments(b, plan.date, split)]);
+
+  // Payments to Partnered itself (the creative director), kept apart from vendor bookings
+  const svc = payments.filter((p) => p.kind === "service").sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+  const svcTotal = svc.reduce((a, p) => a + p.amount, 0);
+  const svcPaid = svc.filter((p) => p.status === "paid").reduce((a, p) => a + p.amount, 0);
+  const svcBase = Math.round(svcTotal / (1 + CD_GST));
 
   const paid = payments.filter((p) => p.status === "paid").reduce((a, p) => a + p.amount, 0);
   const committed = payments.reduce((a, p) => a + p.amount, 0);
@@ -232,7 +238,7 @@ export default function PaymentsTab({ plan, bookings, allocation, payments, setP
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         {[
-          { label: "Committed to vendors", value: inr(committed), sub: `${bookings.length} booking${bookings.length === 1 ? "" : "s"}`, color: "#a8213b" },
+          { label: "Committed", value: inr(committed), sub: `${bookings.length} vendor booking${bookings.length === 1 ? "" : "s"}${svc.length ? " + creative director" : ""}`, color: "#a8213b" },
           { label: "Paid so far", value: inr(paid), sub: committed ? `${Math.round((paid / committed) * 100)}% of commitments` : "nothing yet", color: "#2f6b1f" },
           { label: "Due in 30 days", value: inr(soon), sub: nextDue ? `next: ${shortDay(nextDue.dueDate)}` : "nothing due", color: "#c08a0c" },
           { label: "Budget left", value: inr(plan.budget - committed), sub: "after commitments", color: plan.budget - committed < 0 ? "#c93a52" : "#881a30" },
@@ -245,7 +251,7 @@ export default function PaymentsTab({ plan, bookings, allocation, payments, setP
         ))}
       </div>
 
-      {bookings.length === 0 ? (
+      {bookings.length === 0 && svc.length === 0 ? (
         <div className="bg-white rounded-2xl p-6 sm:p-12 text-center" style={{ border: "1px solid #fbe8ec" }}>
           <div className="text-4xl mb-3" aria-hidden="true">💳</div>
           <div className="text-xl font-medium text-gray-800">No bookings to pay yet</div>
@@ -255,6 +261,45 @@ export default function PaymentsTab({ plan, bookings, allocation, payments, setP
       ) : (
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 sm:gap-6 items-start">
           <div className="xl:col-span-8 space-y-4 min-w-0">
+            {svc.length > 0 && (
+              <div className="rounded-2xl p-4 sm:p-6 space-y-4" style={{ background: "linear-gradient(135deg, #fffdf0, #fdf2f4)", border: "2px solid #c08a0c" }}>
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold uppercase tracking-wider" style={{ color: "#a8213b" }}>Paid to Partnered</div>
+                    <div className="text-lg font-medium text-gray-800">🎨 Partnered Creative Director</div>
+                    <div className="text-sm text-gray-700">One person from our team, with you on the ground from day one.</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-lg font-semibold" style={{ color: "#a8213b" }}>{inr(svcTotal)}</div>
+                    <div className="text-xs text-gray-700">{inr(svcBase)} fee + {inr(svcTotal - svcBase)} GST</div>
+                  </div>
+                </div>
+                <div>
+                  <div className="h-2.5 rounded-full overflow-hidden" style={{ background: "#fdf2f4" }}>
+                    <div className="h-full rounded-full" style={{ width: `${Math.round((svcPaid / svcTotal) * 100)}%`, background: "linear-gradient(to right, #2f6b1f, #6bb04f)" }} />
+                  </div>
+                  <div className="text-xs text-gray-700 mt-1">{inr(svcPaid)} paid of {inr(svcTotal)}</div>
+                </div>
+                <div className="space-y-2">
+                  {svc.map((p) => {
+                    const overdue = p.status === "due" && p.dueDate < today;
+                    return (
+                      <div key={p.id} className="flex flex-wrap sm:flex-nowrap items-center gap-3 rounded-xl p-3 bg-white" style={{ border: "1px solid #fbe8ec" }}>
+                        <div className="flex-1 min-w-[9rem]">
+                          <div className="text-sm font-semibold text-gray-800">{p.label}</div>
+                          <div className="text-xs text-gray-700">{p.status === "paid" ? `Paid ${shortDay(p.paidOn!)} · ${p.method} · ${shortRef(p.ref)}` : `Due ${p.dueDate === today ? "now" : formatDay(p.dueDate)}`}</div>
+                        </div>
+                        <div className="text-base font-semibold text-gray-800">{inr(p.amount)}</div>
+                        {p.status === "paid"
+                          ? <span className="text-sm font-medium px-3 py-1.5 rounded-full" style={{ background: "#f3faf0", color: "#2f6b1f", border: "1px solid #9bd08a" }}>✓ Paid</span>
+                          : <button onClick={() => setPaying(p)} className="w-full sm:w-auto text-white rounded-xl px-5 py-2.5 text-sm font-medium" style={PRIMARY_BTN}>{overdue ? "Pay now (overdue)" : "Pay now"}</button>}
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-gray-700">{svc.some((p) => p.status === "paid") ? "Advance received. Your fee is now locked, and your creative director will be introduced to you shortly." : "Pay the advance to lock your fee and start. The balance is due on day one, when your director reaches you."}</p>
+              </div>
+            )}
             {bookings.map((b) => {
               const rows = payments.filter((p) => p.vendorId === b.vendorId).sort((x, y) => x.dueDate.localeCompare(y.dueDate));
               if (rows.length === 0) return null;

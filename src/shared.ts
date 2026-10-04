@@ -51,6 +51,43 @@ export const WEDDING_STYLES: { name: string; icon: string; blurb: string }[] = [
   { name: "Glamorous & luxe", icon: "💎", blurb: "Statement decor, high drama" },
 ];
 
+// ── Partnered Creative Director: a service Partnered provides and is paid for ───────────────────────────────────────
+// A person hired by Partnered who is with the couple on the ground. The fee is a share of the wedding budget that grows
+// from 5% to 10% as the budget grows, with guardrails so it is never tiny, never huge, and never more than 10%.
+export const CD_PCT_LOW = 5, CD_PCT_HIGH = 10;                   // percent of budget
+export const CD_BUDGET_LOW = 500_000, CD_BUDGET_HIGH = 3_000_000;  // 5% at ₹5 lakh and below, 10% at ₹30 lakh and above
+export const CD_MIN_FEE = 25_000, CD_MAX_FEE = 500_000;           // before GST
+export const CD_MIN_BUDGET = 250_000;                             // below this even the minimum fee would be more than 10%
+export const CD_GST = 0.18;
+export const CD_VENDOR_ID = "partnered-cd";
+export const cdAvailable = (budget: number) => budget >= CD_MIN_BUDGET;
+
+export function cdFee(budget: number) {
+  const t = Math.min(1, Math.max(0, (budget - CD_BUDGET_LOW) / (CD_BUDGET_HIGH - CD_BUDGET_LOW)));
+  const wanted = CD_PCT_LOW + (CD_PCT_HIGH - CD_PCT_LOW) * t;
+  const rounded = Math.round((budget * wanted) / 100 / 1000) * 1000;
+  const base = Math.min(CD_MAX_FEE, Math.max(CD_MIN_FEE, rounded));
+  const gst = Math.round(base * CD_GST);
+  const total = base + gst;
+  const advance = Math.round(total / 2 / 100) * 100;
+  return { percent: Math.round((base / budget) * 1000) / 10, base, gst, total, advance, balance: total - advance, capped: rounded > CD_MAX_FEE };
+}
+
+// The part of the total budget left for vendors once a creative director is added
+export const vendorPool = (p: Pick<WeddingPlan, "budget" | "creativeDirector">) => (p.creativeDirector && cdAvailable(p.budget) ? p.budget - cdFee(p.budget).total : p.budget);
+
+// Two payments to Partnered: half now, half when the director arrives on day one
+export function buildCdPayments(plan: Pick<WeddingPlan, "budget" | "date" | "schedule">): Payment[] {
+  const fee = cdFee(plan.budget);
+  const today = isoDate(new Date());
+  const first = plan.schedule?.[0]?.date || plan.date;
+  const common = { vendorId: CD_VENDOR_ID, vendorName: "Partnered Creative Director", category: "logistics" as Category, status: "due" as const, kind: "service" as const };
+  return [
+    { id: uid("pay"), ...common, label: "Advance (50%)", amount: fee.advance, dueDate: today },
+    { id: uid("pay"), ...common, label: "Balance (50%), when your director arrives", amount: fee.balance, dueDate: first < today ? today : first },
+  ];
+}
+
 export const isTentative = (p: Pick<WeddingPlan, "dateMode">) => p.dateMode === "month" || p.dateMode === "unsure";
 
 export function inr(n: number) { return "₹" + n.toLocaleString("en-IN"); }
@@ -105,6 +142,7 @@ export interface Payment {
   id: string; vendorId: string; vendorName: string; category: Category;
   label: string; amount: number; dueDate: string;
   status: "due" | "paid"; paidOn?: string; method?: string; ref?: string;
+  kind?: "service"; // a payment to Partnered itself (the creative director), not to a vendor
   linkId?: string; linkUrl?: string; // the Pine Labs payment link for this instalment, once one has been made
 }
 export type PaySplit = "30-40-30" | "50-50" | "100";
