@@ -209,6 +209,12 @@ def _listing_score(r: dict) -> tuple[int, list[dict]]:
     return round(35 + 60 * earned / possible), factors
 
 
+def _int(v) -> int | None:
+    """OpenStreetMap values are text, sometimes with a plus sign or a range; keep a plain whole number or nothing."""
+    s = str(v or "").strip().replace("+", "")
+    return int(s) if s.isdigit() and int(s) > 0 else None
+
+
 def _load_real() -> list[dict]:
     """Real places OpenStreetMap knows about. They have NO ratings, prices or availability: those stay None, never guessed."""
     path = Path(__file__).parent / "data" / "osm_vendors.json"
@@ -232,6 +238,8 @@ def _load_real() -> list[dict]:
             "rating": None, "reliability": None, "response_hours": None, "premium_look": None,
             "distance_km": round(_km((bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2, r["lat"], r["lon"]), 1),
             "price_mult": meta["price"], "capacity": 0, "source": "osm",
+            "stars": _int(r.get("stars")), "venue": bool(r.get("venue")), "brand": r.get("brand"),
+            "listed_capacity": _int(r.get("capacity")), "rooms": _int(r.get("rooms")), "wikidata": bool(r.get("wikidata")),
             "lat": r["lat"], "lon": r["lon"], "phone": r.get("phone"), "website": r.get("website"),
             "email": r.get("email"), "hours": r.get("hours"), "osm_type": r.get("osmType"), "osm_id": r.get("osmId"),
         })
@@ -282,13 +290,14 @@ def cities_summary() -> list[dict]:
 
 # ── What the marketplace shows for a vendor ───────────────────────────────────
 
+# Stock photos (Unsplash), checked by eye for each category. Representative pictures, not photos of the business.
 _IMAGES = {
-    "catering": ["photo-1555244162-803834f70033", "photo-1414235077428-338989a2e8c0", "photo-1565299624946-b28f40a0ae38", "photo-1567620905732-2d1ec7ab7445"],
-    "attire": ["photo-1519225421980-715cb0215aed", "photo-1515886657613-9f3515b0c78f", "photo-1610030469983-98e550d6193c"],
-    "decoration": ["photo-1507003211169-0a1dd7228f2d", "photo-1464366400600-7168b8af9bc3"],
-    "photography": ["photo-1537633552985-df8429e8048b", "photo-1606216794074-735e91aa2c92", "photo-1492691527719-9d1e07e534b4"],
-    "hotels": ["photo-1566073771259-6a8506099945", "photo-1520250497591-112f2f40a3f4", "photo-1531804055935-76f44d7c3621"],
-    "transport": ["photo-1449965408869-eaa3f722e40d", "photo-1558618666-fcd25c85cd64"],
+    "catering": ["photo-1555244162-803834f70033", "photo-1414235077428-338989a2e8c0"],
+    "attire": ["photo-1610030469983-98e550d6193c", "photo-1515886657613-9f3515b0c78f"],
+    "decoration": ["photo-1464366400600-7168b8af9bc3", "photo-1519225421980-715cb0215aed"],
+    "photography": ["photo-1537633552985-df8429e8048b", "photo-1606216794074-735e91aa2c92"],
+    "hotels": ["photo-1566073771259-6a8506099945", "photo-1520250497591-112f2f40a3f4"],
+    "transport": ["photo-1449965408869-eaa3f722e40d"],
     "music": ["photo-1493225457124-a3eb161ffa5f", "photo-1429962714451-bb934ecdc4ec"],
     "gifts": ["photo-1549465220-1a8b9238cd48", "photo-1513201099705-a9746e1e201f"],
     "logistics": ["photo-1553413077-190dd305871c"],
@@ -304,6 +313,46 @@ _BLURB = {
     "gifts": "Curated return gifts, shagun hampers and trousseau packing with bulk-order pricing.",
     "logistics": "On-ground coordination: vendor timelines, deliveries and day-of management so you can enjoy the celebrations.",
 }
+
+
+# What this kind of business typically offers. Shown apart from the listed facts, because it is general, not specific to the vendor.
+_USUALLY = {
+    "hotels": ["Banquet hall", "Guest rooms", "Events team", "Catering in-house"],
+    "catering": ["Multi-cuisine menus", "Live counters", "Tasting session", "Service staff"],
+    "decoration": ["Mandap & stage", "Floral styling", "Lighting", "Themed setups"],
+    "photography": ["Candid photography", "Wedding film", "Albums", "Pre-wedding shoot"],
+    "attire": ["Custom fittings", "Alterations", "Bridal & groom wear", "Trousseau planning"],
+    "music": ["DJ & sound", "Live performers", "Dhol", "Sangeet support"],
+    "transport": ["Baraat cars", "Guest transfers", "Airport pickups", "Decorated vehicles"],
+    "gifts": ["Return gifts", "Shagun hampers", "Custom packing", "Bulk orders"],
+    "logistics": ["Vendor coordination", "Deliveries", "Day-of crew", "Timeline management"],
+}
+# Stock photos for the cities where we show them. They are representative pictures, not photos of the business.
+IMAGE_CITIES = {"Hyderabad"}
+
+
+def _features(v: dict) -> list[str]:
+    """Only things the listing itself says: nothing guessed."""
+    out = []
+    if v.get("venue"):
+        out.append("Events venue")
+    if v.get("stars"):
+        out.append(f"{v['stars']}-star")
+    if v.get("listed_capacity"):
+        out.append(f"Up to {v['listed_capacity']} guests")
+    if v.get("rooms"):
+        out.append(f"{v['rooms']} rooms")
+    if v.get("wikidata"):
+        out.append("Well known")
+    if v.get("phone"):
+        out.append("Phone listed")
+    if v.get("website"):
+        out.append("Website")
+    if v.get("email"):
+        out.append("Email listed")
+    if v.get("hours"):
+        out.append("Opening hours listed")
+    return out
 
 
 _OSM_KIND = {"hotels": "venue or hotel", "catering": "caterer", "photography": "photo studio", "decoration": "decorator or florist",
@@ -326,9 +375,11 @@ def vendor_profile(v: dict, guests: int, days: int) -> dict:
         return {
             "id": v["id"], "name": v["name"], "category": v["category"], "city": v["city"], "area": v["area"],
             "tier": 2, "priceBand": "", "rating": None, "reliability": None, "responseHours": None, "premiumLook": None,
-            "distanceKm": v["distance_km"], "capacity": None, "partnerScore": v["listing_score"], "scoreFactors": v["score_factors"],
+            "distanceKm": v["distance_km"], "capacity": v.get("listed_capacity"), "partnerScore": v["listing_score"], "scoreFactors": v["score_factors"],
             "estCost": estimate_cost(v, guests, days), "estCostTypical": True,
-            "tag": "Listed", "image": None, "source": "osm",
+            "tag": "Listed", "source": "osm",
+            "image": (lambda imgs, h: imgs[h % len(imgs)])(_IMAGES[v["category"]], int(hashlib.md5(v["id"].encode()).hexdigest(), 16)) if v["city"] in IMAGE_CITIES else None,
+            "features": _features(v), "usually": _USUALLY.get(v["category"], []), "stars": v.get("stars"),
             "description": f"A {kind} in {v['city']}. No customer reviews or published prices yet: message them to ask about availability and a quote.",
             "phone": v["phone"], "email": v["email"], "hours": v["hours"], "website": v["website"],
             "osmUrl": f"https://www.openstreetmap.org/{v['osm_type']}/{v['osm_id']}", "lat": v["lat"], "lon": v["lon"],

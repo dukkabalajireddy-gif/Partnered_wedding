@@ -5,6 +5,7 @@ import GuestsTab from "./Guests";
 import DeliveriesTab from "./Deliveries";
 import LoginScreen from "./Auth";
 import VendorDesk from "./VendorDesk";
+import { BADGE_STYLE, vendorBadges, vendorInsights, type Badge } from "./vendorInsights";
 import {
   API_BASE, BUDGET_BANDS, CATEGORY_META, daysBetween, GUESTS_UNSURE, GUEST_BANDS, INBOX_KEY, WEDDING_STYLES, addDays, dateLabel, isTentative, monthYear, INPUT_STYLE, PRIMARY_BTN, clearSaved, clearSession, formatDay, getSession, inr, isoDate, loadSaved, prettyPhone, readInbox, save, setSession, upsertConversation,
   REPLY_DELAY_MS, autopilotOn, latestQuote, AUTOPILOT_KEY,
@@ -24,6 +25,7 @@ interface MarketVendor {
   phone: string | null; email: string | null; hours: string | null; website: string | null;
   source: "osm" | "sample"; osmUrl: string | null;
   scoreFactors?: { label: string; ok: boolean; points: number }[];
+  features?: string[]; usually?: string[]; stars?: number | null; // what the listing says, and what this kind of business usually offers
 }
 // The few fields needed to open a chat or record a booking with a vendor.
 type VendorRef = Pick<MarketVendor, "id" | "name" | "category" | "area" | "city"> & { estCost?: number };
@@ -1289,8 +1291,39 @@ function CategoryTile({ category, className = "" }: { category: Category; classN
 }
 const OSM_CREDIT = "Listing data © OpenStreetMap contributors (ODbL)";
 
-function VendorDetail({ vendor, plan, saved, booked, onToggleSave, onToggleBook, onBack, onMessage }: {
-  vendor: MarketVendor; plan: WeddingPlan; saved: boolean; booked: boolean; onToggleSave: () => void;
+// The vendor's picture. Hyderabad listings carry a representative stock photo (labelled as such); if it will not load,
+// or there is none, the vendor gets an icon for its kind of work instead.
+function VendorPhoto({ vendor, className, width, height, eager = false }: { vendor: MarketVendor; className: string; width: number; height: number; eager?: boolean }) {
+  const [failed, setFailed] = useState(false);
+  if (!vendor.image || failed) return <CategoryTile category={vendor.category} className={className} />;
+  return (
+    <div className={`relative overflow-hidden ${className}`} style={{ background: "#fdf2f4" }}>
+      <img src={`https://images.unsplash.com/${vendor.image}?w=${width}&h=${height}&fit=crop&auto=format`} alt={`${CATEGORY_META[vendor.category].label}, representative photo`} loading={eager ? "eager" : "lazy"}
+        onError={() => setFailed(true)} className="w-full h-full object-cover" />
+      {vendor.source === "osm" && <span className="absolute bottom-1.5 right-2 text-[0.65rem] px-1.5 py-0.5 rounded" style={{ background: "rgba(0,0,0,0.6)", color: "#fff" }}>Representative photo</span>}
+    </div>
+  );
+}
+
+function BadgeRow({ badges, className = "" }: { badges: Badge[]; className?: string }) {
+  if (!badges.length) return null;
+  return (
+    <div className={`flex flex-wrap gap-1.5 ${className}`}>
+      {badges.map((b) => { const s = BADGE_STYLE[b.tone]; return <span key={b.label} className="text-xs font-semibold px-2.5 py-1 rounded-full" style={{ background: s.bg, color: s.fg, border: `1px solid ${s.border}` }}>{b.label}</span>; })}
+    </div>
+  );
+}
+
+function Chips({ items, tone = "rose" }: { items: string[]; tone?: "rose" | "plain" }) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {items.map((f) => <span key={f} className="text-sm font-medium px-3 py-1 rounded-full" style={tone === "rose" ? { background: "#fdf2f4", color: "#a8213b", border: "1px solid #f5c6d0" } : { background: "#fff", color: "#333", border: "1px dashed #c9b8bc" }}>{f}</span>)}
+    </div>
+  );
+}
+
+function VendorDetail({ vendor, plan, saved, booked, badges, categoryBudget, onToggleSave, onToggleBook, onBack, onMessage }: {
+  vendor: MarketVendor; plan: WeddingPlan; saved: boolean; booked: boolean; badges: Badge[]; categoryBudget: number | undefined; onToggleSave: () => void;
   onToggleBook: (v: VendorRef, amount: number) => void; onBack: () => void; onMessage: (v: VendorRef) => void;
 }) {
   const real = vendor.source === "osm";
@@ -1314,10 +1347,7 @@ function VendorDetail({ vendor, plan, saved, booked, onToggleSave, onToggleBook,
 
       <div className="bg-white rounded-3xl overflow-hidden" style={{ border: "1px solid #fbe8ec" }}>
         <div className="relative">
-          {vendor.image
-            ? <img src={`https://images.unsplash.com/${vendor.image}?w=1000&h=240&fit=crop&auto=format`} alt={vendor.name} onError={(e) => { e.currentTarget.style.visibility = "hidden"; }}
-                className="w-full h-28 sm:h-36 object-cover" style={{ background: "#fdf2f4" }} />
-            : <CategoryTile category={vendor.category} className="w-full h-28 sm:h-36" />}
+          <VendorPhoto vendor={vendor} className="w-full h-28 sm:h-36" width={1000} height={240} eager />
           <div className="absolute top-4 left-4 text-sm font-medium px-3 py-1 rounded-full" style={{ background: "rgba(255,255,255,0.93)", color: "#a8213b" }}>{real ? meta.label : vendor.tag}</div>
           <button onClick={onToggleSave} aria-label={saved ? "Remove from saved" : "Save vendor"}
             className="absolute top-4 right-4 w-11 h-11 sm:w-9 sm:h-9 rounded-full flex items-center justify-center text-lg"
@@ -1334,6 +1364,7 @@ function VendorDetail({ vendor, plan, saved, booked, onToggleSave, onToggleBook,
               {vendor.rating !== null
                 ? <div className="flex items-center gap-2 mt-2 text-lg"><Stars rating={vendor.rating} /><span className="text-sm font-semibold text-gray-800">{vendor.rating.toFixed(1)}</span></div>
                 : <div className="mt-2 text-sm font-medium text-gray-700">No reviews yet</div>}
+              <BadgeRow badges={badges} className="mt-3" />
             </div>
             <div className="sm:text-right shrink-0">
               {vendor.partnerScore !== null ? (
@@ -1347,6 +1378,38 @@ function VendorDetail({ vendor, plan, saved, booked, onToggleSave, onToggleBook,
           </div>
 
           <p className="text-sm text-gray-700 leading-relaxed">{vendor.description}</p>
+
+          {(vendor.features?.length || vendor.usually?.length) ? (
+            <div className="rounded-2xl p-4 sm:p-5 space-y-4" style={{ background: "#fff", border: "1px solid #fbe8ec" }}>
+              <h3 className="text-sm font-semibold uppercase tracking-wider" style={{ color: "#a8213b" }}>Features & services</h3>
+              {vendor.features && vendor.features.length > 0 && (
+                <div className="space-y-1.5"><div className="text-xs text-gray-700">From the listing</div><Chips items={vendor.features} /></div>
+              )}
+              {vendor.usually && vendor.usually.length > 0 && (
+                <div className="space-y-1.5"><div className="text-xs text-gray-700">Usually offered by a {meta.label.toLowerCase()} business (ask what's included)</div><Chips items={vendor.usually} tone="plain" /></div>
+              )}
+            </div>
+          ) : null}
+
+          {(() => {
+            const ins = vendorInsights(vendor, plan, categoryBudget);
+            return (
+              <div className="space-y-2">
+                <h3 className="text-sm font-semibold uppercase tracking-wider" style={{ color: "#a8213b" }}>Insights for your wedding</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
+                  <div className="rounded-2xl p-4" style={{ background: "#f3faf0", border: "1px solid #cfe6c4" }}>
+                    <div className="text-sm font-semibold mb-1.5" style={{ color: "#2f6b1f" }}>👍 Pros</div>
+                    <ul className="space-y-1.5">{ins.pros.map((x) => <li key={x} className="text-sm text-gray-800 leading-snug flex gap-2"><span aria-hidden="true">•</span><span>{x}</span></li>)}</ul>
+                  </div>
+                  <div className="rounded-2xl p-4" style={{ background: "#fdf2f4", border: "1px solid #f5c6d0" }}>
+                    <div className="text-sm font-semibold mb-1.5" style={{ color: "#a8213b" }}>👎 Things to check</div>
+                    <ul className="space-y-1.5">{ins.cons.map((x) => <li key={x} className="text-sm text-gray-800 leading-snug flex gap-2"><span aria-hidden="true">•</span><span>{x}</span></li>)}</ul>
+                  </div>
+                </div>
+                <p className="text-xs text-gray-700">Worked out from this listing, your budget and your plan. There are no customer reviews yet.</p>
+              </div>
+            );
+          })()}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5 sm:gap-6">
             <div className="rounded-2xl p-4 sm:p-5 space-y-4" style={{ background: "#fdf8f0", border: "1px solid #fbe8ec" }}>
@@ -1426,8 +1489,8 @@ function VendorDetail({ vendor, plan, saved, booked, onToggleSave, onToggleBook,
 
 type VendorSort = "score" | "price" | "distance";
 
-function VendorsTab({ plan, cities, city, setCity, bookings, onToggleBook, onMessage }: {
-  plan: WeddingPlan; cities: CityInfo[]; city: string; setCity: (c: string) => void;
+function VendorsTab({ plan, cities, city, setCity, bookings, onToggleBook, onMessage, allocation, agent }: {
+  plan: WeddingPlan; cities: CityInfo[]; city: string; setCity: (c: string) => void; allocation: BudgetAllocation; agent: AgentState;
   bookings: Booking[]; onToggleBook: (v: VendorRef, amount: number) => void; onMessage: (v: VendorRef) => void;
 }) {
   const [activeCategory, setActiveCategory] = useState<Category | "all">("all");
@@ -1469,8 +1532,14 @@ function VendorsTab({ plan, cities, city, setCity, bookings, onToggleBook, onMes
 
   const toggle = (id: string) => setSaved((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
+  // the agent's shortlist per category, best first, so the pages can say "Best pick for you"
+  const topIds: Partial<Record<Category, string[]>> = {};
+  (Object.keys(agent.result?.shortlists ?? {}) as Category[]).forEach((k) => { topIds[k] = (agent.result!.shortlists[k] ?? []).map((p) => p.id); });
+  const badgesFor = (v: MarketVendor) => vendorBadges(v, plan, allocation, topIds);
+
   if (selected) {
     return <VendorDetail vendor={selected} plan={plan} saved={saved.has(selected.id)} booked={bookings.some((b) => b.vendorId === selected.id)}
+      badges={badgesFor(selected)} categoryBudget={allocation[selected.category]}
       onToggleSave={() => toggle(selected.id)} onToggleBook={onToggleBook} onBack={() => setSelected(null)} onMessage={onMessage} />;
   }
 
@@ -1537,10 +1606,7 @@ function VendorsTab({ plan, cities, city, setCity, bookings, onToggleBook, onMes
             {filtered.map((v) => (
               <div key={v.id} className="bg-white rounded-2xl overflow-hidden group transition-all hover:shadow-md" style={{ border: "1px solid #fbe8ec" }}>
                 <div className="relative">
-                  {v.image
-                    ? <img src={`https://images.unsplash.com/${v.image}?w=400&h=160&fit=crop&auto=format`} alt={v.name} loading="lazy" onError={(e) => { e.currentTarget.style.visibility = "hidden"; }}
-                        className="w-full h-24 object-cover" style={{ background: "#fdf2f4" }} />
-                    : <CategoryTile category={v.category} className="w-full h-24" />}
+                  <VendorPhoto vendor={v} className="w-full h-24" width={400} height={160} />
                   <div className={`absolute top-2 left-2 text-xs font-medium px-2 py-1 rounded-full ${v.source === "osm" ? "hidden" : ""}`} style={{ background: "rgba(255,255,255,0.92)", color: "#a8213b" }}>{v.tag}</div>
                   <button onClick={() => toggle(v.id)} aria-label={saved.has(v.id) ? "Remove from saved" : "Save vendor"}
                     className="absolute top-2 right-2 w-11 h-11 sm:w-9 sm:h-9 rounded-full flex items-center justify-center text-lg transition-all"
@@ -1554,6 +1620,7 @@ function VendorsTab({ plan, cities, city, setCity, bookings, onToggleBook, onMes
                       <div className="font-medium text-gray-800 text-sm">{v.name}</div>
                       <div className="text-xs text-gray-700 mt-0.5">{CATEGORY_META[v.category].icon} {CATEGORY_META[v.category].label}</div>
                       <div className="text-xs text-gray-600 mt-0.5">{v.area ? `${v.area} · ` : ""}{v.distanceKm} km from centre</div>
+                      <BadgeRow badges={badgesFor(v).slice(0, 2)} className="mt-1.5" />
                     </div>
                     <div className="text-right shrink-0">
                       {v.priceBand && <div className="text-xs font-semibold" style={{ color: "#c08a0c" }}>{v.priceBand}</div>}
@@ -2471,7 +2538,7 @@ function CoupleApp({ session, onLogout, onSwitchRole }: { session: Session; onLo
         {tab === "stories"   && <ComingSoonTab icon="❀" title="Success Stories" blurb="Real weddings planned on Partnered." />}
         {tab === "blogs"     && <BlogsTab onBrowseCity={(c) => { setMarketCity(c); setTab("vendors"); }} />}
         {tab === "budget"    && <BudgetTab plan={plan} allocation={allocation} setAllocation={setAllocation} />}
-        {tab === "vendors"   && <VendorsTab plan={plan} cities={cities} city={shownCity} setCity={setMarketCity} bookings={bookings} onToggleBook={toggleBook} onMessage={messageVendor} />}
+        {tab === "vendors"   && <VendorsTab plan={plan} cities={cities} city={shownCity} setCity={setMarketCity} bookings={bookings} onToggleBook={toggleBook} onMessage={messageVendor} allocation={allocation} agent={agent} />}
         {tab === "messages"  && <MessagesTab plan={plan} threads={threads} setThreads={setThreads} activeId={activeThreadId} setActiveId={setActiveThreadId} onNavigate={setTab} bookings={bookings} onBookAndPay={bookAndPay} typing={typing} />}
         {tab === "payments"   && <PaymentsTab plan={plan} bookings={bookings} allocation={allocation} payments={payments} setPayments={setPayments} onBrowse={() => setTab("vendors")} />}
         {tab === "guests"     && <GuestsTab plan={plan} guests={guests} setGuests={setGuests} onGuestCount={(n) => setPlan({ ...plan, guestCount: n })} />}
