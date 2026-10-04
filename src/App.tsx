@@ -772,14 +772,53 @@ function doneCategories(done: Set<string>): Category[] {
   return VENDOR_CHECKS.filter((c) => done.has(c.id)).map((c) => c.category as Category);
 }
 
-function DashboardTab({ plan, allocation, bookings, checklistDone, onToggleCheck, agent, setAgent, setAllocation, setTab, onEditPlan, onMessage, threads, onRequestQuotes, onBook }: {
+// The first-visit guide: checklist first, then the agent, then a look at what it found.
+type Tutorial = "checklist" | "agent" | "review" | "done";
+
+function TourBanner({ step, onNext, onSkip }: { step: Exclude<Tutorial, "done">; onNext: () => void; onSkip: () => void }) {
+  const steps: [Exclude<Tutorial, "done">, string][] = [["checklist", "Checklist"], ["agent", "Agent"], ["review", "Review"]];
+  const at = steps.findIndex(([k]) => k === step);
+  const copy = {
+    checklist: { title: "Start with your checklist", text: "Tick anything you've already booked or finished. The agent skips those, so it only works on what's left. Haven't done anything yet? That's fine, just continue.", cta: "I've finished my checklist →" },
+    agent: { title: "Now run the Wedding Agent", text: "Press \"Run the Wedding Agent\" below. In about 15 seconds it plans your budget, searches vendors and shortlists the best ones.", cta: null },
+    review: { title: "Review what the agent found", text: "Look through the Summary and Top picks, then press \"Apply to my Budget\". After that, explore Vendors, Budget and Messages from the menu.", cta: "Got it" },
+  }[step];
+  return (
+    <div className="rounded-2xl p-4 sm:p-5 space-y-3" style={{ background: "linear-gradient(135deg, #fffdf0, #fdf2f4)", border: "2px solid #c08a0c" }} role="status">
+      <div className="flex items-center gap-2 flex-wrap">
+        {steps.map(([k, label], i) => (
+          <div key={k} className="flex items-center gap-2">
+            <span className="w-7 h-7 rounded-full flex items-center justify-center text-sm font-semibold" style={i <= at ? { background: "#a8213b", color: "#fff" } : { background: "#fff", color: "#555", border: "1px solid #c98a98" }}>{i < at ? "✓" : i + 1}</span>
+            <span className="text-sm" style={{ color: i === at ? "#a8213b" : "#555", fontWeight: i === at ? 700 : 400 }}>{label}</span>
+            {i < steps.length - 1 && <span aria-hidden="true" className="text-gray-400">›</span>}
+          </div>
+        ))}
+        <button onClick={onSkip} className="ml-auto text-sm underline text-gray-700 min-h-9">Skip the tour</button>
+      </div>
+      <div>
+        <div className="text-lg font-semibold text-gray-800">{copy.title}</div>
+        <p className="text-sm sm:text-base text-gray-800 leading-relaxed mt-0.5">{copy.text}</p>
+      </div>
+      {copy.cta && <button onClick={onNext} className="text-white rounded-xl px-6 py-3 font-medium text-sm sparkle-btn w-full sm:w-auto" style={PRIMARY_BTN}>{copy.cta}</button>}
+    </div>
+  );
+}
+
+function DashboardTab({ plan, allocation, bookings, checklistDone, onToggleCheck, agent, setAgent, setAllocation, setTab, onEditPlan, onMessage, threads, onRequestQuotes, onBook, tutorial, setTutorial }: {
   plan: WeddingPlan; allocation: BudgetAllocation; bookings: Booking[]; checklistDone: Set<string>; onToggleCheck: (id: string) => void;
   agent: AgentState; setAgent: (fn: (a: AgentState) => AgentState) => void; setAllocation: (a: BudgetAllocation) => void;
   setTab: (t: Tab) => void; onEditPlan: (p: WeddingPlan) => void; onMessage: (v: VendorRef) => void;
   threads: Thread[]; onRequestQuotes: (vs: VendorRef[]) => void; onBook: (v: VendorRef, amount: number) => void;
+  tutorial: Tutorial; setTutorial: (t: Tutorial) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [settingDate, setSettingDate] = useState(false);
+
+  // The tour moves on by itself as the couple does each step.
+  useEffect(() => {
+    if (tutorial === "agent" && agent.result) setTutorial("review");
+    else if (tutorial === "review" && agent.applied) setTutorial("done");
+  }, [tutorial, agent.result, agent.applied, setTutorial]);
 
   const spent = useMemo(() => {
     const r = {} as BudgetAllocation;
@@ -806,6 +845,14 @@ function DashboardTab({ plan, allocation, bookings, checklistDone, onToggleCheck
         </div>
       )}
 
+      {tutorial !== "done" && (
+        <TourBanner step={tutorial} onSkip={() => setTutorial("done")}
+          onNext={() => {
+            if (tutorial === "checklist") { setTutorial("agent"); window.setTimeout(() => document.getElementById("agent-panel")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80); }
+            else setTutorial("done");
+          }} />
+      )}
+
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         {[
           { label: "Total Budget",  value: inr(plan.budget),              sub: "set by you",                color: "#a8213b" },
@@ -823,8 +870,9 @@ function DashboardTab({ plan, allocation, bookings, checklistDone, onToggleCheck
 
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 sm:gap-6 items-start">
         {/* Left: what the couple controls */}
-        <div className="order-2 xl:order-1 xl:col-span-4 space-y-5 sm:space-y-6 min-w-0">
-          <div className="bg-white rounded-2xl p-4 sm:p-6" style={{ border: "1px solid #fbe8ec" }}>
+        <div className={`${tutorial === "checklist" ? "order-1" : "order-2"} xl:order-1 xl:col-span-4 space-y-5 sm:space-y-6 min-w-0`}>
+          <div id="checklist-card" className="bg-white rounded-2xl p-4 sm:p-6" style={tutorial === "checklist" ? { border: "2px solid #a8213b", boxShadow: "0 0 0 5px #fdf2f4" } : { border: "1px solid #fbe8ec" }}>
+            {tutorial === "checklist" && <div className="inline-block text-xs font-semibold px-2.5 py-1 rounded-full text-white mb-2" style={{ background: "#a8213b" }}>Start here</div>}
             <div className="flex items-center justify-between mb-1">
               <h3 className="font-medium text-gray-700 text-sm">Shaadi Checklist</h3>
               <span className="text-xs text-gray-600">{doneCount} of {checklist.length} done</span>
@@ -846,6 +894,10 @@ function DashboardTab({ plan, allocation, bookings, checklistDone, onToggleCheck
                 );
               })}
             </div>
+            {tutorial === "checklist" && (
+              <button onClick={() => { setTutorial("agent"); window.setTimeout(() => document.getElementById("agent-panel")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80); }}
+                className="mt-4 w-full text-white rounded-xl py-3 font-medium text-sm" style={PRIMARY_BTN}>I've finished my checklist →</button>
+            )}
           </div>
 
           <div className="bg-white rounded-2xl p-4 sm:p-6" style={{ border: "1px solid #fbe8ec" }}>
@@ -883,27 +935,14 @@ function DashboardTab({ plan, allocation, bookings, checklistDone, onToggleCheck
         </div>
 
         {/* Right: the agent gets the wide area */}
-        <div className="order-1 xl:order-2 xl:col-span-8 min-w-0 space-y-5 sm:space-y-6">
+        <div className={`${tutorial === "checklist" ? "order-2" : "order-1"} xl:order-2 xl:col-span-8 min-w-0 space-y-5 sm:space-y-6`}>
+          <div id="agent-panel" className="space-y-2">
+            {tutorial === "checklist" && <div className="text-sm font-semibold" style={{ color: "#a8213b" }}>Step 2 · the agent unlocks once you've done your checklist</div>}
+            <div className={tutorial === "checklist" ? "opacity-45 select-none" : tutorial === "agent" ? "rounded-2xl" : ""}
+              style={tutorial === "agent" ? { boxShadow: "0 0 0 5px #fdf2f4, 0 0 0 7px #a8213b" } : undefined}
+              {...(tutorial === "checklist" ? { inert: true } : {})}>
           <AgentPanel plan={plan} agent={agent} setAgent={setAgent} setAllocation={setAllocation} completed={doneCategories(checklistDone)} onMessage={onMessage}
             threads={threads} bookings={bookings} onRequestQuotes={onRequestQuotes} onBook={onBook} goTo={setTab} />
-
-          <div className="bg-white rounded-2xl p-4 sm:p-6" style={{ border: "1px solid #fbe8ec" }}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-medium text-gray-700 text-sm">Budget by Category</h3>
-              <button onClick={() => setTab("budget")} className="text-sm px-4 py-2.5 rounded-full" style={{ background: "#fdf2f4", color: "#a8213b" }}>View all →</button>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3">
-              {(Object.keys(allocation) as Category[]).map((k) => (
-                <div key={k}>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs text-gray-700">{CATEGORY_META[k].icon} {CATEGORY_META[k].label}</span>
-                    <span className="text-xs text-gray-600">{inr(spent[k])} / {inr(allocation[k])}</span>
-                  </div>
-                  <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "#fdf2f4" }}>
-                    <div className="h-full rounded-full" style={{ width: `${Math.min(100, Math.round((spent[k]/allocation[k])*100))}%`, background: `linear-gradient(to right, ${CATEGORY_META[k].color}, #c08a0c)` }} />
-                  </div>
-                </div>
-              ))}
             </div>
           </div>
         </div>
@@ -2288,7 +2327,7 @@ function ComingSoonTab({ icon, title, blurb }: { icon: string; title: string; bl
 
 // What is kept in the browser between visits.
 interface SavedState {
-  plan: WeddingPlan; tab: Tab; allocation: BudgetAllocation; threads: Thread[]; activeThreadId: string; bookings: Booking[];
+  tutorial: Tutorial; plan: WeddingPlan; tab: Tab; allocation: BudgetAllocation; threads: Thread[]; activeThreadId: string; bookings: Booking[];
   agent: AgentState; payments: Payment[]; guests: Guest[]; deliveries: Delivery[]; checklist: string[];
 }
 
@@ -2304,6 +2343,7 @@ function CoupleApp({ session, onLogout, onSwitchRole }: { session: Session; onLo
   const [activeThreadId, setActiveThreadId] = useState(saved.activeThreadId ?? "");
   const [bookings, setBookings] = useState<Booking[]>(saved.bookings ?? []);
   const [agent, setAgent] = useState<AgentState>(saved.agent ?? { objective: "", result: null, applied: false });
+  const [tutorial, setTutorial] = useState<Tutorial>(saved.tutorial ?? "done"); // couples who were here before the guide existed are not walked through it
   const [payments, setPayments] = useState<Payment[]>(saved.payments ?? []);
   const [guests, setGuests] = useState<Guest[]>(saved.guests ?? []);
   const [deliveries, setDeliveries] = useState<Delivery[]>(saved.deliveries ?? []);
@@ -2335,8 +2375,8 @@ function CoupleApp({ session, onLogout, onSwitchRole }: { session: Session; onLo
 
   useEffect(() => {
     if (!plan) return;
-    save(phone, { plan, tab, allocation, threads, activeThreadId, bookings, agent, payments, guests, deliveries, checklist: [...checklistDone] } satisfies SavedState);
-  }, [phone, plan, tab, allocation, threads, activeThreadId, bookings, agent, payments, guests, deliveries, checklistDone]);
+    save(phone, { tutorial, plan, tab, allocation, threads, activeThreadId, bookings, agent, payments, guests, deliveries, checklist: [...checklistDone] } satisfies SavedState);
+  }, [phone, tutorial, plan, tab, allocation, threads, activeThreadId, bookings, agent, payments, guests, deliveries, checklistDone]);
 
   // Conversations with messages go to the shared inbox, where the vendor desk can read and answer them.
   useEffect(() => {
@@ -2473,6 +2513,8 @@ function CoupleApp({ session, onLogout, onSwitchRole }: { session: Session; onLo
 
   const handleOnboard = (p: WeddingPlan) => {
     setPlan(p);
+    setTutorial("checklist");
+    setTab("dashboard");
     setAllocation(mlAllocate(p.budget, p.guestCount));
     setAgent({ objective: defaultObjective(p), result: null, applied: false });
   };
@@ -2534,7 +2576,7 @@ function CoupleApp({ session, onLogout, onSwitchRole }: { session: Session; onLo
       <main className="flex-1 overflow-y-auto relative min-h-0">
         {tab === "dashboard" && <DashboardTab plan={plan} allocation={allocation} bookings={bookings} checklistDone={checklistDone} onToggleCheck={toggleCheck}
           agent={agent} setAgent={setAgent} setAllocation={setAllocation} setTab={setTab} onEditPlan={setPlan} onMessage={messageVendor}
-          threads={threads} onRequestQuotes={requestQuotes} onBook={bookAt} />}
+          threads={threads} onRequestQuotes={requestQuotes} onBook={bookAt} tutorial={tutorial} setTutorial={setTutorial} />}
         {tab === "stories"   && <ComingSoonTab icon="❀" title="Success Stories" blurb="Real weddings planned on Partnered." />}
         {tab === "blogs"     && <BlogsTab onBrowseCity={(c) => { setMarketCity(c); setTab("vendors"); }} />}
         {tab === "budget"    && <BudgetTab plan={plan} allocation={allocation} setAllocation={setAllocation} />}

@@ -190,7 +190,6 @@ export default function GuestsTab({ plan, guests, setGuests, onGuestCount }: {
   const [filter, setFilter] = useState<Rsvp | "all">("all");
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [kind, setKind] = useState<"invite" | "reminder">("invite");
-  const [demoNote, setDemoNote] = useState("");
   const [form, setForm] = useState({ name: "", phone: "", group: GROUPS[0] as GuestGroup });
 
   const couple = `${plan.name} & ${plan.partnerName}`;
@@ -272,11 +271,11 @@ export default function GuestsTab({ plan, guests, setGuests, onGuestCount }: {
               <h3 className="font-medium text-gray-700 text-sm">Add guests</h3>
               <button onClick={() => setAdding(true)} className="text-white rounded-xl px-5 py-2.5 text-sm font-medium" style={PRIMARY_BTN}>📇 Add from contacts</button>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto_auto] gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto] gap-2 [&>*]:min-w-0">
               <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Guest name" aria-label="Guest name" className="rounded-xl px-4 py-3 text-base focus:outline-none" style={INPUT_STYLE} />
               <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="Mobile number" inputMode="tel" aria-label="Mobile number" className="rounded-xl px-4 py-3 text-base focus:outline-none" style={INPUT_STYLE} />
               <select value={form.group} onChange={(e) => setForm({ ...form, group: e.target.value as GuestGroup })} aria-label="Group" className="rounded-xl px-3 py-3 text-base bg-white" style={{ border: "1px solid #f5c6d0" }}>{GROUPS.map((g) => <option key={g}>{g}</option>)}</select>
-              <button onClick={addManual} disabled={!form.name.trim() || normalisePhone(form.phone).length < 11} className="rounded-xl px-5 py-3 text-sm font-medium disabled:opacity-50" style={{ color: "#a8213b", border: "1px solid #a8213b" }}>Add</button>
+              <button onClick={addManual} disabled={!form.name.trim() || normalisePhone(form.phone).length < 11} className="rounded-xl px-5 py-3 text-sm font-medium disabled:opacity-50 min-h-12" style={{ color: "#a8213b", border: "1px solid #a8213b" }}>Add</button>
             </div>
           </div>
 
@@ -341,16 +340,13 @@ export default function GuestsTab({ plan, guests, setGuests, onGuestCount }: {
             <button onClick={() => setQueue(targets)} disabled={targets.length === 0} className="w-full text-white rounded-xl py-3.5 font-medium text-sm disabled:opacity-50 sparkle-btn" style={PRIMARY_BTN}>
               {targets.length ? `Send ${kind === "invite" ? "invitation" : "reminder"} to ${targets.length} guest${targets.length === 1 ? "" : "s"}` : "Tick the guests you want to message"}
             </button>
-            <button onClick={() => { targets.forEach((g) => markInvited(g.id, "demo")); setDemoNote(`Demo: ${targets.length} guest${targets.length === 1 ? "" : "s"} marked as invited. No messages were sent.`); setPicked(new Set()); }} disabled={targets.length === 0}
-              className="w-full rounded-xl py-3 font-medium text-sm disabled:opacity-50" style={{ color: "#a8213b", border: "1px solid #f5c6d0" }}>Send to all in one go (demo)</button>
-            {demoNote && <div className="text-sm rounded-xl p-3 text-gray-800" style={{ background: "#fffdf0", border: "1px solid #fbf0a1" }}>{demoNote}</div>}
             <button onClick={simulateReplies} disabled={!guests.some((g) => g.rsvp === "invited")} className="w-full rounded-xl py-3 font-medium text-sm disabled:opacity-50 text-gray-800" style={{ border: "1px solid #ddd" }}>Simulate guest replies (demo)</button>
           </div>
 
           <div className="rounded-2xl p-4 sm:p-5 text-sm text-gray-800 leading-relaxed space-y-2" style={{ background: "linear-gradient(135deg, #fdf2f4, #fefdf0)", border: "1px solid #f5c6d0" }}>
             <div className="font-semibold" style={{ color: "#a8213b" }}>How sending works today</div>
             <p>"Send" opens WhatsApp or SMS on your phone with the message ready for one guest at a time, so it goes from your own number and guests reply to you. Tap each guest's reply into the RSVP status above.</p>
-            <p>One-click sending to everyone, with replies read automatically, needs the WhatsApp Business API (Meta approval, a per-message fee, and guests must have agreed to receive messages) or an SMS service. The demo buttons show how that will feel; they do not send anything.</p>
+            <p>One-click sending to everyone, with replies read automatically, needs the WhatsApp Business API (Meta approval, a per-message fee, and guests must have agreed to receive messages) or an SMS service. Until one is connected, invitations go out one tap at a time from your own phone.</p>
           </div>
         </div>
       </div>
