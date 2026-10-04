@@ -9,7 +9,7 @@ import { ListenButton, MicButton, VoiceLangToggle, useVoiceReady } from "./Voice
 import { BADGE_STYLE, vendorBadges, vendorInsights, type Badge } from "./vendorInsights";
 import KnowPartner from "./KnowPartner";
 import RefundPolicy from "./RefundPolicy";
-import SaathiCard from "./Saathi";
+import SaathiPage from "./Saathi";
 import { CD_VENDOR_ID, buildCdPayments, cdAvailable, cdFee, vendorPool } from "./shared";
 import {
   API_BASE, BUDGET_BANDS, CATEGORY_META, DELIVERY_STEPS, daysBetween, GUESTS_UNSURE, GUEST_BANDS, INBOX_KEY, WEDDING_STYLES, addDays, dateLabel, isTentative, monthYear, INPUT_STYLE, PRIMARY_BTN, clearSaved, clearSession, formatDay, getSession, inr, isoDate, loadSaved, prettyPhone, readInbox, save, setSession, upsertConversation,
@@ -616,9 +616,10 @@ function OnboardingScreen({ cities, onComplete }: { cities: CityInfo[]; onComple
 
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
 
-type Tab = "dashboard" | "budget" | "vendors" | "messages" | "payments" | "guests" | "deliveries" | "stories" | "blogs" | "partner" | "refunds";
+type Tab = "dashboard" | "budget" | "vendors" | "messages" | "payments" | "guests" | "deliveries" | "stories" | "blogs" | "partner" | "refunds" | "saathi";
 const NAV: { id: Tab; label: string; icon: string }[] = [
   { id: "dashboard", label: "Overview",  icon: "◈" },
+  { id: "saathi",    label: "Saathi AI", icon: "🎙" },
   { id: "budget",    label: "Budget",    icon: "◎" },
   { id: "vendors",   label: "Vendors",   icon: "◉" },
   { id: "messages",  label: "Messages",  icon: "◐" },
@@ -884,8 +885,68 @@ function SetBudgetModal({ plan, onSave, onClose }: { plan: WeddingPlan; onSave: 
   );
 }
 
-function DashboardTab({ plan, allocation, bookings, checklistDone, onToggleCheck, agent, setAgent, setAllocation, setTab, onEditPlan, onMessage, threads, onRequestQuotes, onBook, tutorial, setTutorial, budgetTouched, onEditBudget, payments, guests, deliveries }: {
-  payments: Payment[]; guests: Guest[]; deliveries: Delivery[];
+// What Saathi (the voice assistant) is allowed to talk about: only facts worked out from the couple's own plan.
+function saathiFactsFor(a: { plan: WeddingPlan; allocation: BudgetAllocation; bookings: Booking[]; threads: Thread[]; agent: AgentState; payments: Payment[]; guests: Guest[]; deliveries: Delivery[]; checklistDone: Set<string> }) {
+  const { plan, allocation, bookings, threads, agent, payments, guests, deliveries, checklistDone } = a;
+  const checklist = checklistFor(plan);
+  const doneCount = checklist.filter((c) => checklistDone.has(c.id)).length;
+  const today = isoDate(new Date());
+  const pool = vendorPool(plan);
+  const fee = plan.creativeDirector && cdAvailable(plan.budget) ? cdFee(plan.budget).total : 0;
+  const committed = bookings.reduce((a, b) => a + b.amount, 0);
+  const keys = Object.keys(allocation) as Category[];
+  const biggest = keys.length ? keys.reduce((a, k) => (allocation[k] > allocation[a] ? k : a), keys[0]) : null;
+  const booked = new Set(bookings.map((b) => b.vendorId));
+  const quoted = threads.filter((t) => t.vendor && latestQuote(t.messages));
+  const requested = threads.filter((t) => t.viaAgent || t.messages.some((m) => m.from === "me")).length;
+  const shortlisted = agent.result ? Object.values(agent.result.shortlists).reduce((a, l) => a + (l?.length ?? 0), 0) : 0;
+  const vendorPays = payments.filter((p) => p.kind !== "service");
+  const dues = payments.filter((p) => p.status === "due").sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+  const rsvp = (r: Guest["rsvp"]) => guests.filter((g) => g.rsvp === r);
+  const parcels = deliveries.map((d) => {
+    const buffer = daysBetween(d.expected, d.neededBy);
+    const done = d.step >= DELIVERY_STEPS.length - 1;
+    const late = !done && (d.expected < today || buffer < 0);
+    const tight = !done && !late && buffer <= 3;
+    return {
+      item: d.item, status: DELIVERY_STEPS[d.step], expected: d.expected, neededBy: d.neededBy, risk: done ? "delivered" : late ? "late" : tight ? "tight" : "on track",
+      note: late ? (d.expected < today ? `It was expected on ${d.expected} and has not arrived.` : `It is expected on ${d.expected}, after the ${d.neededBy} you need it by.`) : tight ? `Only ${buffer} days to spare.` : "",
+    };
+  });
+  let nextStep = "";
+  if (!agent.result) nextStep = "Run the Wedding Agent on the Overview page. It shortlists vendors for every category in about a minute.";
+  else if (!quoted.length) nextStep = "Open the Quotes tab on the agent panel and request quotes from the top vendors.";
+  else if (quoted.some((t) => t.vendor && !booked.has(t.vendor.id))) nextStep = "Compare the quotes you received and accept the ones you like in Messages.";
+  else if (dues[0]) nextStep = `Pay ${dues[0].vendorName}'s ${dues[0].label.toLowerCase()} on the Payments page.`;
+  else nextStep = "Add your guests and send invitations on the Guests and RSVP page.";
+  return {
+    couple: `${plan.name} and ${plan.partnerName}'s`, city: plan.location, weddingDate: plan.date, guestCount: plan.guestCount,
+    daysToGo: Math.max(0, daysBetween(today, plan.date)),
+    checklist: { done: doneCount, total: checklist.length },
+    budget: {
+      total: plan.budget, vendorPool: pool, creativeDirectorFee: fee, committed, remaining: pool - committed,
+      biggestCategory: biggest ? CATEGORY_META[biggest].label : "",
+      byCategory: keys.map((k) => ({ category: CATEGORY_META[k].label, budget: allocation[k], booked: bookings.filter((b) => b.category === k).reduce((a, b) => a + b.amount, 0) })),
+    },
+    vendors: {
+      bookedCount: bookings.length, booked: bookings.map((b) => ({ vendor: b.vendorName, category: CATEGORY_META[b.category].label, amount: b.amount })),
+      agentRan: !!agent.result, shortlistedCount: shortlisted, requestedCount: requested, quotesReceived: quoted.length,
+      quotesWaiting: quoted.filter((t) => t.vendor && !booked.has(t.vendor.id)).length,
+      quotes: quoted.slice(0, 8).map((t) => ({ vendor: t.sender, amount: latestQuote(t.messages)!.amount })),
+    },
+    payments: {
+      count: payments.length, vendorPaymentCount: vendorPays.length,
+      paid: payments.filter((p) => p.status === "paid").reduce((a, p) => a + p.amount, 0), due: dues.reduce((a, p) => a + p.amount, 0),
+      overdue: dues.filter((p) => p.dueDate < today).length,
+      next: dues[0] ? { vendor: dues[0].vendorName, label: dues[0].label, amount: dues[0].amount, dueDate: dues[0].dueDate } : null,
+    },
+    deliveries: parcels,
+    guests: { total: guests.length, invited: guests.filter((g) => g.rsvp !== "not_invited").length, coming: rsvp("yes").length, peopleComing: rsvp("yes").reduce((a, g) => a + g.party, 0), declined: rsvp("no").length, maybe: rsvp("maybe").length, awaiting: rsvp("invited").length },
+    nextStep,
+  };
+}
+
+function DashboardTab({ plan, allocation, bookings, checklistDone, onToggleCheck, agent, setAgent, setAllocation, setTab, onEditPlan, onMessage, threads, onRequestQuotes, onBook, tutorial, setTutorial, budgetTouched, onEditBudget }: {
   plan: WeddingPlan; allocation: BudgetAllocation; bookings: Booking[]; checklistDone: Set<string>; onToggleCheck: (id: string) => void;
   agent: AgentState; setAgent: (fn: (a: AgentState) => AgentState) => void; setAllocation: (a: BudgetAllocation) => void;
   setTab: (t: Tab) => void; onEditPlan: (p: WeddingPlan) => void; onMessage: (v: VendorRef) => void;
@@ -916,63 +977,6 @@ function DashboardTab({ plan, allocation, bookings, checklistDone, onToggleCheck
   const checklist = checklistFor(plan);
   const doneCount = checklist.filter((c) => checklistDone.has(c.id)).length;
 
-  // What Saathi (the voice assistant) is allowed to talk about: only facts worked out from the couple's own plan.
-  const saathiFacts = useMemo(() => {
-    const today = isoDate(new Date());
-    const pool = vendorPool(plan);
-    const fee = plan.creativeDirector && cdAvailable(plan.budget) ? cdFee(plan.budget).total : 0;
-    const committed = bookings.reduce((a, b) => a + b.amount, 0);
-    const keys = Object.keys(allocation) as Category[];
-    const biggest = keys.length ? keys.reduce((a, k) => (allocation[k] > allocation[a] ? k : a), keys[0]) : null;
-    const booked = new Set(bookings.map((b) => b.vendorId));
-    const quoted = threads.filter((t) => t.vendor && latestQuote(t.messages));
-    const requested = threads.filter((t) => t.viaAgent || t.messages.some((m) => m.from === "me")).length;
-    const shortlisted = agent.result ? Object.values(agent.result.shortlists).reduce((a, l) => a + (l?.length ?? 0), 0) : 0;
-    const vendorPays = payments.filter((p) => p.kind !== "service");
-    const dues = payments.filter((p) => p.status === "due").sort((a, b) => a.dueDate.localeCompare(b.dueDate));
-    const rsvp = (r: Guest["rsvp"]) => guests.filter((g) => g.rsvp === r);
-    const parcels = deliveries.map((d) => {
-      const buffer = daysBetween(d.expected, d.neededBy);
-      const done = d.step >= DELIVERY_STEPS.length - 1;
-      const late = !done && (d.expected < today || buffer < 0);
-      const tight = !done && !late && buffer <= 3;
-      return {
-        item: d.item, status: DELIVERY_STEPS[d.step], expected: d.expected, neededBy: d.neededBy, risk: done ? "delivered" : late ? "late" : tight ? "tight" : "on track",
-        note: late ? (d.expected < today ? `It was expected on ${d.expected} and has not arrived.` : `It is expected on ${d.expected}, after the ${d.neededBy} you need it by.`) : tight ? `Only ${buffer} days to spare.` : "",
-      };
-    });
-    let nextStep = "";
-    if (!agent.result) nextStep = "Run the Wedding Agent on the Overview page. It shortlists vendors for every category in about a minute.";
-    else if (!quoted.length) nextStep = "Open the Quotes tab on the agent panel and request quotes from the top vendors.";
-    else if (quoted.some((t) => t.vendor && !booked.has(t.vendor.id))) nextStep = "Compare the quotes you received and accept the ones you like in Messages.";
-    else if (dues[0]) nextStep = `Pay ${dues[0].vendorName}'s ${dues[0].label.toLowerCase()} on the Payments page.`;
-    else nextStep = "Add your guests and send invitations on the Guests and RSVP page.";
-    return {
-      couple: `${plan.name} and ${plan.partnerName}'s`, city: plan.location, weddingDate: plan.date, guestCount: plan.guestCount,
-      daysToGo: Math.max(0, daysBetween(today, plan.date)),
-      checklist: { done: doneCount, total: checklist.length },
-      budget: {
-        total: plan.budget, vendorPool: pool, creativeDirectorFee: fee, committed, remaining: pool - committed,
-        biggestCategory: biggest ? CATEGORY_META[biggest].label : "",
-        byCategory: keys.map((k) => ({ category: CATEGORY_META[k].label, budget: allocation[k], booked: bookings.filter((b) => b.category === k).reduce((a, b) => a + b.amount, 0) })),
-      },
-      vendors: {
-        bookedCount: bookings.length, booked: bookings.map((b) => ({ vendor: b.vendorName, category: CATEGORY_META[b.category].label, amount: b.amount })),
-        agentRan: !!agent.result, shortlistedCount: shortlisted, requestedCount: requested, quotesReceived: quoted.length,
-        quotesWaiting: quoted.filter((t) => t.vendor && !booked.has(t.vendor.id)).length,
-        quotes: quoted.slice(0, 8).map((t) => ({ vendor: t.sender, amount: latestQuote(t.messages)!.amount })),
-      },
-      payments: {
-        count: payments.length, vendorPaymentCount: vendorPays.length,
-        paid: payments.filter((p) => p.status === "paid").reduce((a, p) => a + p.amount, 0), due: dues.reduce((a, p) => a + p.amount, 0),
-        overdue: dues.filter((p) => p.dueDate < today).length,
-        next: dues[0] ? { vendor: dues[0].vendorName, label: dues[0].label, amount: dues[0].amount, dueDate: dues[0].dueDate } : null,
-      },
-      deliveries: parcels,
-      guests: { total: guests.length, invited: guests.filter((g) => g.rsvp !== "not_invited").length, coming: rsvp("yes").length, peopleComing: rsvp("yes").reduce((a, g) => a + g.party, 0), declined: rsvp("no").length, maybe: rsvp("maybe").length, awaiting: rsvp("invited").length },
-      nextStep,
-    };
-  }, [plan, allocation, bookings, threads, agent.result, payments, guests, deliveries, doneCount, checklist.length]);
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-[1500px] mx-auto w-full space-y-5 sm:space-y-6">
@@ -990,8 +994,6 @@ function DashboardTab({ plan, allocation, bookings, checklistDone, onToggleCheck
           <button onClick={() => setSettingDate(true)} className="rounded-lg px-4 py-2.5 text-sm font-medium min-h-11" style={{ color: "#a8213b", border: "1px solid #a8213b", background: "#fff" }}>📅 Set the exact date</button>
         </div>
       )}
-
-      <SaathiCard facts={saathiFacts} />
 
       {tutorial !== "done" && (
         <TourBanner step={inChecklist ? "checklist" : (tutorial as TourStep)} onSkip={() => setTutorial("done")}
@@ -2556,6 +2558,7 @@ function AgentPanel({ plan, agent, setAgent, setAllocation, completed, onMessage
 const NAV_SECTIONS: [string, { id: Tab; label: string; icon: string }[]][] = [["Manage", MANAGE_NAV], ["Inspiration", INSPIRATION_NAV]];
 const MOBILE_TABS: { id: Tab; label: string; icon: string }[] = [
   { id: "dashboard", label: "Overview", icon: "◈" },
+  { id: "saathi",    label: "Saathi",   icon: "🎙" },
   { id: "budget",    label: "Budget",   icon: "◎" },
   { id: "vendors",   label: "Vendors",  icon: "◉" },
   { id: "messages",  label: "Messages", icon: "◐" },
@@ -2949,10 +2952,10 @@ function CoupleApp({ session, onLogout, onSwitchRole }: { session: Session; onLo
       <main className="flex-1 overflow-y-auto relative min-h-0">
         {tab === "dashboard" && <DashboardTab plan={plan} allocation={allocation} bookings={bookings} checklistDone={checklistDone} onToggleCheck={toggleCheck}
           agent={agent} setAgent={setAgent} setAllocation={setOwnAllocation} budgetTouched={budgetTouched} setTab={setTab} onEditPlan={editPlan} onMessage={messageVendor}
-          threads={threads} onRequestQuotes={requestQuotes} onBook={bookAt} tutorial={tutorial} setTutorial={setTutorial} onEditBudget={editBudget}
-          payments={payments} guests={guests} deliveries={deliveries} />}
+          threads={threads} onRequestQuotes={requestQuotes} onBook={bookAt} tutorial={tutorial} setTutorial={setTutorial} onEditBudget={editBudget} />}
         {tab === "stories"   && <ComingSoonTab icon="❀" title="Success Stories" blurb="Real weddings planned on Partnered." />}
         {tab === "partner"   && <KnowPartner plan={plan} onHire={() => { editPlan({ ...plan, creativeDirector: true }); setTab("payments"); }} onPayments={() => setTab("payments")} onVendors={() => setTab("vendors")} />}
+        {tab === "saathi"    && <SaathiPage facts={saathiFactsFor({ plan, allocation, bookings, threads, agent, payments, guests, deliveries, checklistDone })} />}
         {tab === "refunds"   && <RefundPolicy onPayments={() => setTab("payments")} />}
         {tab === "blogs"     && <BlogsTab onBrowseCity={(c) => { setMarketCity(c); setTab("vendors"); }} />}
         {tab === "budget"    && <BudgetTab plan={plan} allocation={allocation} setAllocation={setOwnAllocation} resetAllocation={resetAllocation} onVendors={() => setTab("vendors")} onPayments={() => setTab("payments")} onCreativeDirector={(on) => { editPlan({ ...plan, creativeDirector: on }); if (on) setTab("payments"); }} />}
