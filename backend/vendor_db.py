@@ -328,7 +328,7 @@ _USUALLY = {
     "logistics": ["Vendor coordination", "Deliveries", "Day-of crew", "Timeline management"],
 }
 # Stock photos for the cities where we show them. They are representative pictures, not photos of the business.
-IMAGE_CITIES = {"Hyderabad"}
+IMAGE_CITIES = {"Hyderabad", "Delhi", "Mumbai"}
 
 
 def _features(v: dict) -> list[str]:
