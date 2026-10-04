@@ -5,6 +5,7 @@ import GuestsTab from "./Guests";
 import DeliveriesTab from "./Deliveries";
 import LoginScreen from "./Auth";
 import VendorDesk from "./VendorDesk";
+import { ListenButton, MicButton, VoiceLangToggle, useVoiceReady } from "./VoiceUI";
 import { BADGE_STYLE, vendorBadges, vendorInsights, type Badge } from "./vendorInsights";
 import {
   API_BASE, BUDGET_BANDS, CATEGORY_META, daysBetween, GUESTS_UNSURE, GUEST_BANDS, INBOX_KEY, WEDDING_STYLES, addDays, dateLabel, isTentative, monthYear, INPUT_STYLE, PRIMARY_BTN, clearSaved, clearSession, formatDay, getSession, inr, isoDate, loadSaved, prettyPhone, readInbox, save, setSession, upsertConversation,
@@ -1699,6 +1700,8 @@ function MessagesTab({ plan, threads, setThreads, activeId, setActiveId, onNavig
   onNavigate: (t: Tab) => void; bookings: Booking[]; onBookAndPay: (v: VendorRef, amount?: number) => void; typing: Set<string>;
 }) {
   const [draft, setDraft] = useState("");
+  const [voiceNote, setVoiceNote] = useState(""); // what the microphone is doing, or why it could not
+  const voiceReady = useVoiceReady();
   // On phones only one pane shows at a time: the conversation list, or the open chat.
   const [view, setView] = useState<"list" | "chat">(activeId ? "chat" : "list");
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -1831,7 +1834,7 @@ function MessagesTab({ plan, threads, setThreads, activeId, setActiveId, onNavig
                     </div>
                   )}
                 </div>
-                <div className={`text-xs text-gray-600 mt-1 ${msg.from === "me" ? "text-right" : "text-left"}`}>{msg.time}</div>
+                <div className={`text-xs text-gray-600 mt-1 flex items-center gap-3 ${msg.from === "me" ? "justify-end" : ""}`}><span>{msg.time}</span>{msg.from === "vendor" && <ListenButton text={msg.text} />}</div>
               </div>
               {msg.from === "me" && (
                 <div className="w-7 h-7 rounded-full items-center justify-center text-xs font-medium ml-2 mt-1 shrink-0 hidden sm:flex"
@@ -1857,12 +1860,19 @@ function MessagesTab({ plan, threads, setThreads, activeId, setActiveId, onNavig
         </div>
 
         {/* Compose */}
+        {voiceReady && (
+          <div className="px-3 sm:px-6 pt-3 bg-white flex items-center gap-3 flex-wrap">
+            <VoiceLangToggle />
+            <span className="text-sm text-gray-700" aria-live="polite">{voiceNote}</span>
+          </div>
+        )}
         <div className="px-3 sm:px-6 py-3 sm:py-4 bg-white flex items-end gap-2 sm:gap-3 shrink-0">
           <textarea rows={2} value={draft} onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
             placeholder={`Message ${active.sender.split(" ")[0]}…`}
             className="flex-1 min-w-0 rounded-xl px-4 py-3 text-base resize-none focus:outline-none max-h-40"
             style={{ border: "1px solid #fbe8ec", background: "#fdf8f0" }} />
+          <MicButton onText={(t) => setDraft((d) => (d ? `${d} ${t}` : t))} onStatus={setVoiceNote} />
           <button onClick={send} aria-label="Send" className="text-white w-12 h-12 rounded-xl flex items-center justify-center shrink-0 text-lg"
             style={{ background: "linear-gradient(135deg, #a8213b, #881a30)" }}>↑</button>
         </div>
@@ -2078,6 +2088,7 @@ function AgentPanel({ plan, agent, setAgent, setAllocation, completed, onMessage
                     <li key={i} className="flex gap-3 text-sm sm:text-base text-gray-800 leading-relaxed"><span style={{ color: "#c08a0c" }} aria-hidden="true">✦</span><span>{s}</span></li>
                   ))}
                 </ul>
+                <div className="flex items-center gap-3 flex-wrap"><ListenButton text={result.summary} label="Listen to this summary" /><VoiceLangToggle /></div>
                 {!result.usedLlm && <p className="text-xs text-gray-600">AI language model unavailable, so this uses default priorities and a templated summary.</p>}
                 <div className="flex flex-col sm:flex-row sm:items-center gap-3 pt-1" style={{ borderTop: "1px solid #fbe8ec" }}>
                   <div className="pt-3 sm:pt-4">{applyBtn}</div>
