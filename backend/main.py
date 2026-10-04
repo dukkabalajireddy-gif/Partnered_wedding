@@ -15,6 +15,7 @@ from tracking import router as tracking_router  # noqa: E402
 from payments import router as payments_router  # noqa: E402
 from vendor_reply import router as vendor_reply_router  # noqa: E402
 from voice import router as voice_router  # noqa: E402
+from assistant import router as assistant_router  # noqa: E402
 
 app = FastAPI(title="Partner backend")
 app.add_middleware(
@@ -26,7 +27,7 @@ app.add_middleware(
 )
 
 # The agent answers both with and without the "/api" prefix (see health/chat below).
-for _router in (agent_router, marketplace_router, tracking_router, vendor_reply_router, payments_router, voice_router):
+for _router in (agent_router, marketplace_router, tracking_router, vendor_reply_router, payments_router, voice_router, assistant_router):
     app.include_router(_router)
     app.include_router(_router, prefix="/api")
 
