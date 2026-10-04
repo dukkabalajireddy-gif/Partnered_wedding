@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  CATEGORY_META, PAY_SPLITS, PRIMARY_BTN, addDays, buildPayments, daysBetween, formatDay, inr, isoDate, shortDay,
+  API_BASE, CATEGORY_META, PAY_SPLITS, PRIMARY_BTN, addDays, buildPayments, daysBetween, formatDay, inr, isoDate, shortDay,
   type BudgetAllocation, type Booking, type Category, type Payment, type PaySplit, type WeddingPlan,
 } from "./shared";
 
@@ -13,26 +13,102 @@ const METHODS = [
   { id: "Net banking", label: "Net banking", hint: "Pay from your bank account" },
 ];
 
+// Pine Labs link ids are long: show the tail
+const shortRef = (r?: string) => (r && r.length > 16 ? `…${r.slice(-8)}` : r ?? "");
+
 function splitOf(rows: Payment[]): PaySplit {
   if (rows.length === 1) return "100";
   return rows.length === 2 ? "50-50" : "30-40-30";
 }
 
-function Checkout({ payment, onClose, onPaid }: { payment: Payment; onClose: () => void; onPaid: (method: string, ref: string) => void }) {
-  const [method, setMethod] = useState(METHODS[0].id);
-  const [phase, setPhase] = useState<"choose" | "processing" | "done">("choose");
-  const [ref, setRef] = useState("");
+type Customer = { name: string; phone: string; email?: string };
 
-  const pay = () => {
-    setPhase("processing");
-    window.setTimeout(() => {
-      const r = `PLTEST-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
-      setRef(r); setPhase("done"); onPaid(method, r);
-    }, 1300);
+// The pay screen. With Pine Labs connected it makes a payment link, sends the couple to Pine Labs' page to pay, and watches
+// the link until Pine Labs says it is paid. Without keys it falls back to the built-in test checkout (nothing real happens).
+function Checkout({ payment, customer, onClose, onPaid, onLink }: {
+  payment: Payment; customer: Customer; onClose: () => void; onPaid: (method: string, ref: string) => void; onLink: (linkId: string, url: string) => void;
+}) {
+  const [phase, setPhase] = useState<"loading" | "choose" | "processing" | "live" | "done" | "error">("loading");
+  const [method, setMethod] = useState(METHODS[0].id);
+  const [ref, setRef] = useState("");
+  const [msg, setMsg] = useState("");
+  const [link, setLink] = useState<{ id: string; url: string; env: string } | null>(null);
+  const [status, setStatus] = useState("CREATED");
+  const [checking, setChecking] = useState(false);
+  const alive = useRef(true);
+  const finished = useRef(false);
+
+  const finish = (m: string, r: string) => { if (finished.current) return; finished.current = true; setRef(r); setPhase("done"); onPaid(m, r); };
+
+  const start = async () => {
+    setPhase("loading"); setMsg("");
+    try {
+      // an instalment keeps one open link: come back to it instead of making another
+      if (payment.linkId && payment.linkUrl) {
+        const r = await fetch(`${API_BASE}/api/payments/status?linkId=${encodeURIComponent(payment.linkId)}`);
+        if (r.ok) {
+          const s = await r.json();
+          if (s.mode === "live") {
+            if (s.paid) return finish("Pine Labs", payment.linkId);
+            if (["CREATED", "CLICKED", "PAYMENT_INITIATED"].includes(s.status)) { setLink({ id: payment.linkId, url: payment.linkUrl, env: s.env ?? "uat" }); setStatus(s.status); return setPhase("live"); }
+          }
+        }
+      }
+      const res = await fetch(`${API_BASE}/api/payments/link`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          paymentId: payment.id, amount: payment.amount, description: `${payment.label} to ${payment.vendorName}`,
+          customer: { name: customer.name, phone: customer.phone, email: customer.email ?? "" },
+          tags: { vendor: payment.vendorName.slice(0, 60), instalment: payment.label, category: payment.category },
+        }),
+      });
+      if (!res.ok) throw new Error(((await res.json().catch(() => ({}))) as { detail?: string }).detail ?? "Could not start the payment.");
+      const data = await res.json();
+      if (data.mode === "demo") return setPhase("choose");
+      onLink(data.linkId, data.url);
+      setLink({ id: data.linkId, url: data.url, env: data.env }); setStatus(data.status || "CREATED"); setPhase("live");
+    } catch (e) {
+      setMsg(e instanceof TypeError ? "Could not reach the payment service. Check that the backend is running." : (e as Error).message);
+      setPhase("error");
+    }
+  };
+  useEffect(() => { start(); return () => { alive.current = false; }; /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+
+  const check = async () => {
+    if (!link) return;
+    setChecking(true);
+    try {
+      const r = await fetch(`${API_BASE}/api/payments/status?linkId=${encodeURIComponent(link.id)}`);
+      if (!r.ok || !alive.current) return;
+      const s = await r.json();
+      setStatus(s.status);
+      if (s.paid) finish("Pine Labs", link.id);
+      else if (s.status === "EXPIRED" || s.status === "CANCELLED") { setMsg(`This payment link was ${s.status === "EXPIRED" ? "not used in time" : "cancelled"}.`); setPhase("error"); }
+    } finally { if (alive.current) setChecking(false); }
+  };
+  // while the couple pays on Pine Labs' page, look every few seconds
+  useEffect(() => {
+    if (phase !== "live" || !link) return;
+    const t = window.setInterval(check, 4000);
+    return () => window.clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, link]);
+
+  const cancelLink = async () => {
+    if (link) { try { await fetch(`${API_BASE}/api/payments/cancel`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ linkId: link.id }) }); } catch { /* the link expires by itself */ } }
+    onClose();
   };
 
+  const payDemo = () => {
+    setPhase("processing");
+    window.setTimeout(() => finish(method, `PLTEST-${Math.random().toString(36).slice(2, 8).toUpperCase()}`), 1300);
+  };
+
+  const testEnv = !link || link.env !== "production";
+  const busy = phase === "processing";
+
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: "rgba(0,0,0,0.45)" }} onClick={phase === "processing" ? undefined : onClose}>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: "rgba(0,0,0,0.45)" }} onClick={busy ? undefined : onClose}>
       <div className="w-full max-w-md rounded-t-3xl sm:rounded-3xl bg-white p-5 sm:p-7 space-y-5 max-h-[92dvh] overflow-y-auto" style={{ borderTop: "3px solid #c08a0c", paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom))" }} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -40,15 +116,35 @@ function Checkout({ payment, onClose, onPaid }: { payment: Payment; onClose: () 
             <h3 className="text-2xl font-medium text-gray-800 mt-1">{inr(payment.amount)}</h3>
             <div className="text-sm text-gray-700">{payment.label} to {payment.vendorName}</div>
           </div>
-          {phase !== "processing" && <button onClick={onClose} aria-label="Close" className="text-xl px-3 py-2 -mr-3 -mt-2" style={{ color: "#444" }}>✕</button>}
+          {!busy && <button onClick={onClose} aria-label="Close" className="text-xl px-3 py-2 -mr-3 -mt-2" style={{ color: "#444" }}>✕</button>}
         </div>
 
-        <div className="rounded-xl p-3 text-sm text-gray-800" style={{ background: "#fffdf0", border: "1px solid #fbf0a1" }}>
-          <span className="font-semibold">Test mode.</span> No money moves and no card or bank details are asked for. This shows how the payment step will work once Pine Labs is connected.
-        </div>
+        {phase === "loading" && <div className="text-center py-6 text-gray-800 text-sm animate-pulse">Setting up your payment…</div>}
+
+        {phase === "live" && link && (
+          <>
+            {testEnv && (
+              <div className="rounded-xl p-3 text-sm text-gray-800" style={{ background: "#fffdf0", border: "1px solid #fbf0a1" }}>
+                <span className="font-semibold">Pine Labs test environment.</span> Use Pine Labs' test payment details on their page. No real money moves.
+              </div>
+            )}
+            <button onClick={() => window.open(link.url, "_blank", "noopener")} className="w-full text-white rounded-xl py-3.5 font-medium text-sm sparkle-btn" style={PRIMARY_BTN}>Open Pine Labs checkout ↗</button>
+            <div className="rounded-xl p-3 text-sm text-gray-800 space-y-1" style={{ background: "#fdf8f0", border: "1px solid #fbe8ec" }}>
+              <div className="animate-pulse">Waiting for your payment… this page updates by itself.</div>
+              <div className="text-xs text-gray-700">Link status: {status === "CREATED" ? "ready" : status === "CLICKED" ? "opened" : status === "PAYMENT_INITIATED" ? "payment started" : status}</div>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={check} disabled={checking} className="flex-1 rounded-xl py-2.5 text-sm font-medium disabled:opacity-60" style={{ color: "#a8213b", border: "1px solid #f5c6d0" }}>{checking ? "Checking…" : "I've paid: check now"}</button>
+              <button onClick={cancelLink} className="rounded-xl px-4 py-2.5 text-sm text-gray-800" style={{ border: "1px solid #ddd" }}>Cancel link</button>
+            </div>
+          </>
+        )}
 
         {phase === "choose" && (
           <>
+            <div className="rounded-xl p-3 text-sm text-gray-800" style={{ background: "#fffdf0", border: "1px solid #fbf0a1" }}>
+              <span className="font-semibold">Test mode.</span> Pine Labs isn't connected on this server, so this is a walkthrough. No money moves and no card or bank details are asked for.
+            </div>
             <div className="space-y-2" role="radiogroup" aria-label="Payment method">
               {METHODS.map((m) => (
                 <button key={m.id} role="radio" aria-checked={method === m.id} onClick={() => setMethod(m.id)}
@@ -59,15 +155,26 @@ function Checkout({ payment, onClose, onPaid }: { payment: Payment; onClose: () 
                 </button>
               ))}
             </div>
-            <button onClick={pay} className="w-full text-white rounded-xl py-3.5 font-medium text-sm sparkle-btn" style={PRIMARY_BTN}>Pay {inr(payment.amount)} (test)</button>
+            <button onClick={payDemo} className="w-full text-white rounded-xl py-3.5 font-medium text-sm sparkle-btn" style={PRIMARY_BTN}>Pay {inr(payment.amount)} (test)</button>
           </>
         )}
         {phase === "processing" && <div className="text-center py-6 text-gray-800 text-sm">Processing your test payment…</div>}
+
+        {phase === "error" && (
+          <div className="space-y-3">
+            <div className="rounded-xl p-3 text-sm font-medium" style={{ background: "#fdf2f4", color: "#a8213b", border: "1px solid #f5c6d0" }}>{msg}</div>
+            <div className="flex gap-2">
+              <button onClick={start} className="flex-1 text-white rounded-xl py-3 font-medium text-sm" style={PRIMARY_BTN}>Try again</button>
+              <button onClick={onClose} className="rounded-xl px-5 py-3 text-sm text-gray-800" style={{ border: "1px solid #ddd" }}>Close</button>
+            </div>
+          </div>
+        )}
+
         {phase === "done" && (
           <div className="text-center space-y-3 py-2">
             <div className="w-14 h-14 rounded-full mx-auto flex items-center justify-center text-2xl text-white" style={{ background: "#2f6b1f" }}>✓</div>
-            <div className="text-lg font-medium text-gray-800">Test payment recorded</div>
-            <div className="text-sm text-gray-700">Reference {ref} · {method}</div>
+            <div className="text-lg font-medium text-gray-800">{link ? "Payment received" : "Test payment recorded"}</div>
+            <div className="text-sm text-gray-700" style={{ overflowWrap: "anywhere" }}>Reference {ref} · {link ? "Pine Labs" : method}</div>
             <button onClick={onClose} className="w-full rounded-xl py-3 font-medium text-sm" style={{ color: "#a8213b", border: "1px solid #f5c6d0" }}>Done</button>
           </div>
         )}
@@ -76,11 +183,13 @@ function Checkout({ payment, onClose, onPaid }: { payment: Payment; onClose: () 
   );
 }
 
-export default function PaymentsTab({ plan, bookings, allocation, payments, setPayments, onBrowse }: {
-  plan: WeddingPlan; bookings: Booking[]; allocation: BudgetAllocation;
+export default function PaymentsTab({ plan, bookings, allocation, payments, setPayments, onBrowse, customer }: {
+  plan: WeddingPlan; bookings: Booking[]; allocation: BudgetAllocation; customer: Customer;
   payments: Payment[]; setPayments: (fn: (p: Payment[]) => Payment[]) => void; onBrowse: () => void;
 }) {
   const [paying, setPaying] = useState<Payment | null>(null);
+  const [pine, setPine] = useState<{ configured: boolean; env: string | null } | null>(null); // is Pine Labs connected on this server?
+  useEffect(() => { fetch(`${API_BASE}/api/payments/config`).then((r) => (r.ok ? r.json() : null)).then(setPine).catch(() => setPine(null)); }, []);
   const today = isoDate(new Date());
 
   // Every booking gets a payment schedule. Unpaid instalments for a booking that was undone are dropped.
@@ -118,7 +227,7 @@ export default function PaymentsTab({ plan, bookings, allocation, payments, setP
           <h1 className="text-3xl font-medium text-gray-800">Payments</h1>
           <p className="text-sm text-gray-600 mt-1">Advances and balances for every vendor you've booked, in one place.</p>
         </div>
-        <span className="text-sm px-3 py-1.5 rounded-full font-medium" style={{ background: "#fffdf0", color: "#7a5206", border: "1px solid #fbf0a1" }}>Test mode · Pine Labs not connected yet</span>
+        <span className="text-sm px-3 py-1.5 rounded-full font-medium" style={pine?.configured ? { background: "#eaf3ff", color: "#27457a", border: "1px solid #cfd8e3" } : { background: "#fffdf0", color: "#7a5206", border: "1px solid #fbf0a1" }}>{pine?.configured ? (pine.env === "production" ? "Live payments · Pine Labs" : "Pine Labs test environment") : "Test mode · Pine Labs not connected yet"}</span>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
@@ -188,7 +297,7 @@ export default function PaymentsTab({ plan, bookings, allocation, payments, setP
                           <div className="flex-1 min-w-[9rem]">
                             <div className="text-sm font-semibold text-gray-800">{p.label}</div>
                             <div className="text-xs text-gray-700">
-                              {p.status === "paid" ? `Paid ${shortDay(p.paidOn!)} · ${p.method} · ${p.ref}` : `Due ${p.dueDate === today ? "today" : formatDay(p.dueDate)}`}
+                              {p.status === "paid" ? `Paid ${shortDay(p.paidOn!)} · ${p.method} · ${shortRef(p.ref)}` : `Due ${p.dueDate === today ? "today" : formatDay(p.dueDate)}`}
                             </div>
                           </div>
                           <div className="text-base font-semibold text-gray-800">{inr(p.amount)}</div>
@@ -236,20 +345,21 @@ export default function PaymentsTab({ plan, bookings, allocation, payments, setP
                 ? <p className="text-sm text-gray-700">Payments you make will be listed here with a reference number.</p>
                 : <ul className="space-y-2.5">{history.map((p) => (
                     <li key={p.id} className="flex items-start justify-between gap-3 text-sm">
-                      <span className="min-w-0"><span className="block text-gray-800 font-medium">{p.vendorName}</span><span className="block text-xs text-gray-600">{p.label} · {p.ref}</span></span>
+                      <span className="min-w-0"><span className="block text-gray-800 font-medium">{p.vendorName}</span><span className="block text-xs text-gray-600">{p.label} · {shortRef(p.ref)}</span></span>
                       <span className="font-semibold text-gray-800 shrink-0">{inr(p.amount)}</span>
                     </li>))}</ul>}
             </div>
 
             <div className="rounded-2xl p-4 sm:p-5 text-sm text-gray-800 leading-relaxed" style={{ background: "linear-gradient(135deg, #fdf2f4, #fefdf0)", border: "1px solid #f5c6d0" }}>
               <div className="font-semibold" style={{ color: "#a8213b" }}>🌲 How payments will work</div>
-              <p className="mt-1">With Pine Labs connected, each instalment becomes a secure payment link sent to the vendor, and receipts and confirmations arrive here automatically. Right now it's a test-mode walkthrough. Due dates run back from your wedding on {formatDay(addDays(plan.date, 0))}.</p>
+              <p className="mt-1">{pine?.configured ? "Each instalment becomes a secure Pine Labs payment link. You pay on their page, and this page notices by itself and marks it paid." : "With Pine Labs connected, each instalment becomes a secure payment link, and receipts and confirmations arrive here automatically. Right now it's a test-mode walkthrough."} Due dates run back from your wedding on {formatDay(addDays(plan.date, 0))}.</p>
             </div>
           </div>
         </div>
       )}
 
-      {paying && <Checkout payment={paying} onClose={() => setPaying(null)} onPaid={(method, ref) => markPaid(paying.id, method, ref)} />}
+      {paying && <Checkout payment={payments.find((x) => x.id === paying.id) ?? paying} customer={customer} onClose={() => setPaying(null)} onPaid={(method, ref) => markPaid(paying.id, method, ref)}
+        onLink={(linkId, url) => setPayments((ps) => ps.map((x) => (x.id === paying.id ? { ...x, linkId, linkUrl: url } : x)))} />}
     </div>
   );
 }

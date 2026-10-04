@@ -104,6 +104,7 @@ export interface Payment {
   id: string; vendorId: string; vendorName: string; category: Category;
   label: string; amount: number; dueDate: string;
   status: "due" | "paid"; paidOn?: string; method?: string; ref?: string;
+  linkId?: string; linkUrl?: string; // the Pine Labs payment link for this instalment, once one has been made
 }
 export type PaySplit = "30-40-30" | "50-50" | "100";
 export const PAY_SPLITS: Record<PaySplit, { label: string; parts: [string, number, number][] }> = {
