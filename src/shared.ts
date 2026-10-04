@@ -25,6 +25,7 @@ export interface WeddingPlan {
   sameVenue?: "yes" | "no" | "unsure";    // ceremony and reception in the same place?
   budgetBand?: string; guestBand?: string; // what the couple picked, when they gave a range
   styles?: string[];                       // up to three wedding styles
+  diet?: "veg" | "both" | "unsure";        // vegetarian-only wedding, veg and non-veg, or not decided
 }
 
 export const BUDGET_BANDS: { label: string; value: number }[] = [

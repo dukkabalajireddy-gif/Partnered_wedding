@@ -7,6 +7,7 @@ export interface Badge { label: string; tone: "gold" | "rose" | "green" | "blue"
 export interface InsightVendor {
   id: string; name: string; category: Category; estCost: number; distanceKm: number; partnerScore: number | null;
   features?: string[]; capacity: number | null; phone: string | null; website: string | null; rating: number | null;
+  food?: "veg" | "nonveg" | "unknown" | null;
 }
 
 export const BADGE_STYLE: Record<Badge["tone"], { bg: string; fg: string; border: string }> = {
@@ -48,6 +49,7 @@ export function vendorBadges(v: InsightVendor, plan: WeddingPlan, allocation: Pa
 }
 
 export function vendorInsights(v: InsightVendor, plan: WeddingPlan, categoryBudget: number | undefined): { pros: string[]; cons: string[] } {
+  const vegOnly = plan.diet === "veg";
   const pros: string[] = [], cons: string[] = [];
   const stars = (v.features ?? []).find((f) => /^\d-star$/.test(f));
 
@@ -67,9 +69,11 @@ export function vendorInsights(v: InsightVendor, plan: WeddingPlan, categoryBudg
   const s = styleMatch(v.name, plan.styles);
   if (s) pros.push(`Its name suggests it suits your ${s} style`);
 
+  if (vegOnly && v.food === "veg") pros.push("Listed as pure vegetarian, which matches your menu");
+  if (vegOnly && v.food === "unknown") cons.push("Menu isn't listed. Ask for a fully vegetarian menu before booking");
   if (v.rating === null) cons.push("No customer reviews yet");
   cons.push("The price is a typical estimate: ask for a quote");
 
   if (pros.length === 0) pros.push("A real business listed in your city");
-  return { pros: pros.slice(0, 4), cons: cons.slice(0, 4) };
+  return { pros: pros.slice(0, 4), cons: cons.slice(0, 5) };
 }

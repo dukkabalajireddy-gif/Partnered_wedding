@@ -27,6 +27,7 @@ interface MarketVendor {
   source: "osm" | "sample"; osmUrl: string | null;
   scoreFactors?: { label: string; ok: boolean; points: number }[];
   features?: string[]; usually?: string[]; stars?: number | null; // what the listing says, and what this kind of business usually offers
+  food?: "veg" | "nonveg" | "unknown" | null; // for caterers and venues: does the listing serve meat?
 }
 // The few fields needed to open a chat or record a booking with a vendor.
 type VendorRef = Pick<MarketVendor, "id" | "name" | "category" | "area" | "city"> & { estCost?: number };
@@ -482,6 +483,12 @@ function OnboardingScreen({ cities, onComplete }: { cities: CityInfo[]; onComple
                   <label className="text-xs font-medium uppercase tracking-wider block mb-1" style={{ color: "#a8213b" }}>Will the ceremony and reception be in the same place?</label>
                   <ChoiceRow label="Same venue" value={form.sameVenue} onChange={(v) => setForm((f) => ({ ...f, sameVenue: v }))}
                     options={[["yes", "Yes"], ["no", "No"], ["unsure", "Not sure yet"]]} />
+                </div>
+                <div>
+                  <label className="text-xs font-medium uppercase tracking-wider block mb-1" style={{ color: "#a8213b" }}>What will the wedding menu be?</label>
+                  <ChoiceRow label="Menu" value={form.diet} onChange={(v) => setForm((f) => ({ ...f, diet: v }))}
+                    options={[["veg", "Vegetarian only"], ["both", "Veg and non-veg"], ["unsure", "Not sure yet"]]} />
+                  {form.diet === "veg" && <p className="text-sm text-gray-700 mt-1.5">We'll leave out caterers that clearly serve non-veg food, and ask the rest for a fully vegetarian menu.</p>}
                 </div>                <RitualPicker selected={rituals} onToggle={toggleRitual} onClear={clearRituals} />
               </div>
               <div className="flex gap-3">
@@ -587,7 +594,7 @@ function OnboardingScreen({ cities, onComplete }: { cities: CityInfo[]; onComple
               <div className="flex gap-3">
                 <button className="flex-1 rounded-xl py-3 font-medium text-sm" style={{ border: "1px solid #f5c6d0", color: "#a8213b" }} onClick={() => setStep(3)}>Back</button>
                 <button className="flex-[2] text-white rounded-xl py-3 font-medium text-sm sparkle-btn" style={PRIMARY_BTN}
-                  onClick={() => onComplete({ ...form, creativeDirector: form.creativeDirector ?? false, schedule: finalizeSchedule(days), dateMode: form.dateMode ?? "exact", sameVenue: form.sameVenue ?? "unsure", styles: form.styles ?? [], radiusKm: form.radiusKm ?? null } as WeddingPlan)}>Shubh Aarambh ✨</button>
+                  onClick={() => onComplete({ ...form, creativeDirector: form.creativeDirector ?? false, schedule: finalizeSchedule(days), dateMode: form.dateMode ?? "exact", sameVenue: form.sameVenue ?? "unsure", diet: form.diet ?? "unsure", styles: form.styles ?? [], radiusKm: form.radiusKm ?? null } as WeddingPlan)}>Shubh Aarambh ✨</button>
               </div>
             </div>
           )}        </div>
@@ -774,10 +781,11 @@ function doneCategories(done: Set<string>): Category[] {
 }
 
 // The first-visit guide: checklist first, then the agent, then a look at what it found.
-type Tutorial = "checklist" | "agent" | "review" | "done";
+type Tutorial = "intro" | "checklist" | "agent" | "review" | "done";
+type TourStep = "checklist" | "agent" | "review";
 
-function TourBanner({ step, onNext, onSkip }: { step: Exclude<Tutorial, "done">; onNext: () => void; onSkip: () => void }) {
-  const steps: [Exclude<Tutorial, "done">, string][] = [["checklist", "Checklist"], ["agent", "Agent"], ["review", "Review"]];
+function TourBanner({ step, onNext, onSkip }: { step: TourStep; onNext: () => void; onSkip: () => void }) {
+  const steps: [TourStep, string][] = [["checklist", "Checklist"], ["agent", "Agent"], ["review", "Review"]];
   const at = steps.findIndex(([k]) => k === step);
   const copy = {
     checklist: { title: "Start with your checklist", text: "Tick anything you've already booked or finished. The agent skips those, so it only works on what's left. Haven't done anything yet? That's fine, just continue.", cta: "I've finished my checklist →" },
@@ -805,15 +813,77 @@ function TourBanner({ step, onNext, onSkip }: { step: Exclude<Tutorial, "done">;
   );
 }
 
-function DashboardTab({ plan, allocation, bookings, checklistDone, onToggleCheck, agent, setAgent, setAllocation, setTab, onEditPlan, onMessage, threads, onRequestQuotes, onBook, tutorial, setTutorial }: {
+// The welcome pop-up: the order that works best, in three steps.
+function TourIntro({ first, onStart, onClose }: { first: boolean; onStart: () => void; onClose: () => void }) {
+  const steps = [
+    ["1", "Tick your Shaadi Checklist", "Mark anything you've already booked or finished. The agent will skip it."],
+    ["2", "Run the Wedding Agent", "In about 15 seconds it plans your budget, searches vendors and shortlists the best ones."],
+    ["3", "Read your summary", "Check what it found, press Apply to my Budget, then explore Vendors, Budget and Messages."],
+  ];
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4" style={{ background: "rgba(0,0,0,0.5)" }} onClick={first ? undefined : onClose} role="dialog" aria-modal="true" aria-label="How Partnered works">
+      <div className="w-full max-w-lg max-h-[92dvh] overflow-y-auto rounded-t-3xl sm:rounded-3xl bg-white p-5 sm:p-8 space-y-5" style={{ borderTop: "4px solid #c08a0c", paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom))" }} onClick={(e) => e.stopPropagation()}>
+        <div>
+          <h3 className="text-2xl sm:text-3xl font-medium" style={{ color: "#a8213b" }}>{first ? "Welcome to Partnered! 🙏🏻" : "How Partnered works"}</h3>
+          <p className="text-base text-gray-800 mt-1">Here's the best way to start. It takes about two minutes.</p>
+        </div>
+        <ol className="space-y-3">
+          {steps.map(([n, title, text]) => (
+            <li key={n} className="flex gap-3 rounded-2xl p-3.5" style={{ background: "#fdf8f0", border: "1px solid #fbe8ec" }}>
+              <span className="w-9 h-9 rounded-full flex items-center justify-center text-base font-semibold text-white shrink-0" style={{ background: "#a8213b" }}>{n}</span>
+              <div><div className="text-base font-semibold text-gray-800">{title}</div><div className="text-sm text-gray-700 leading-snug mt-0.5">{text}</div></div>
+            </li>
+          ))}
+        </ol>
+        <div className="space-y-2">
+          <button onClick={onStart} className="w-full text-white rounded-xl py-3.5 font-medium text-sm sparkle-btn" style={PRIMARY_BTN}>{first ? "Start with my checklist →" : "Start the guided tour"}</button>
+          {!first && <button onClick={onClose} className="w-full rounded-xl py-3 text-sm font-medium text-gray-800" style={{ border: "1px solid #ddd" }}>Close</button>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Change the total budget. The category budgets are scaled to match, keeping their proportions.
+function SetBudgetModal({ plan, onSave, onClose }: { plan: WeddingPlan; onSave: (n: number) => void; onClose: () => void }) {
+  const [value, setValue] = useState(String(plan.budget));
+  const n = Math.round(Number(value));
+  const ok = Number.isFinite(n) && n >= 100000 && n <= 500000000;
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4" style={{ background: "rgba(0,0,0,0.45)" }} onClick={onClose}>
+      <div className="w-full max-w-md rounded-t-3xl sm:rounded-3xl bg-white p-5 sm:p-7 space-y-4" style={{ borderTop: "3px solid #c08a0c", paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom))" }} onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-2xl font-medium text-gray-800">Edit your total budget</h3>
+        <p className="text-sm text-gray-700">Your category budgets will be scaled up or down to match, keeping their proportions. You can fine-tune them on the Budget page.</p>
+        <label className="block text-xs font-medium uppercase tracking-wider" style={{ color: "#a8213b" }}>Total budget (₹)
+          <input type="number" inputMode="numeric" value={value} onChange={(e) => setValue(e.target.value)} className="mt-1 w-full rounded-xl px-4 py-3 text-base normal-case tracking-normal font-normal focus:outline-none" style={INPUT_STYLE} autoFocus />
+        </label>
+        <div className="flex flex-wrap gap-2">
+          {BUDGET_BANDS.map((b) => <button key={b.label} onClick={() => setValue(String(b.value))} className="text-sm px-3 py-2 rounded-lg min-h-10" style={{ background: "#fdf2f4", color: "#a8213b", border: "1px solid #f5c6d0" }}>{b.label}</button>)}
+        </div>
+        {ok && n !== plan.budget && <p className="text-sm text-gray-800">New total: <span className="font-semibold">{inr(n)}</span> ({n > plan.budget ? "up" : "down"} {inr(Math.abs(n - plan.budget))}).</p>}
+        {!ok && <p className="text-sm" style={{ color: "#a8213b" }}>Enter an amount between ₹1,00,000 and ₹50 crore.</p>}
+        <div className="flex gap-3">
+          <button onClick={onClose} className="flex-1 rounded-xl py-3 font-medium text-sm" style={{ border: "1px solid #f5c6d0", color: "#a8213b" }}>Cancel</button>
+          <button disabled={!ok || n === plan.budget} onClick={() => onSave(n)} className="flex-[2] text-white rounded-xl py-3 font-medium text-sm disabled:opacity-40" style={PRIMARY_BTN}>Save budget</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DashboardTab({ plan, allocation, bookings, checklistDone, onToggleCheck, agent, setAgent, setAllocation, setTab, onEditPlan, onMessage, threads, onRequestQuotes, onBook, tutorial, setTutorial, budgetTouched, onEditBudget }: {
   plan: WeddingPlan; allocation: BudgetAllocation; bookings: Booking[]; checklistDone: Set<string>; onToggleCheck: (id: string) => void;
   agent: AgentState; setAgent: (fn: (a: AgentState) => AgentState) => void; setAllocation: (a: BudgetAllocation) => void;
   setTab: (t: Tab) => void; onEditPlan: (p: WeddingPlan) => void; onMessage: (v: VendorRef) => void;
   threads: Thread[]; onRequestQuotes: (vs: VendorRef[]) => void; onBook: (v: VendorRef, amount: number) => void;
-  tutorial: Tutorial; setTutorial: (t: Tutorial) => void;
+  tutorial: Tutorial; setTutorial: (t: Tutorial) => void; budgetTouched: boolean; onEditBudget: (n: number) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [settingDate, setSettingDate] = useState(false);
+  const [editingBudget, setEditingBudget] = useState(false);
+  const [introOpen, setIntroOpen] = useState(tutorial === "intro");
+  const inChecklist = tutorial === "intro" || tutorial === "checklist"; // the checklist is step one of the tour
+  useEffect(() => { if (tutorial === "intro") setIntroOpen(true); }, [tutorial]);
 
   // The tour moves on by itself as the couple does each step.
   useEffect(() => {
@@ -836,7 +906,10 @@ function DashboardTab({ plan, allocation, bookings, checklistDone, onToggleCheck
     <div className="p-4 sm:p-6 lg:p-8 max-w-[1500px] mx-auto w-full space-y-5 sm:space-y-6">
       <div>
         <h1 className="text-3xl font-medium text-gray-800">Hi {plan.name} & {plan.partnerName} <span role="img" aria-label="Namaste">🙏🏻</span></h1>
-        <p className="text-sm text-gray-600 mt-1">Here's where your shaadi stands today. Tick off what you've finished, and the agent works on the rest.</p>
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <p className="text-sm text-gray-600 mt-1 flex-1 min-w-[14rem]">Here's where your shaadi stands today. Tick off what you've finished, and the agent works on the rest.</p>
+          <button onClick={() => setIntroOpen(true)} className="text-sm font-medium px-4 py-2 rounded-full min-h-10" style={{ color: "#a8213b", border: "1px solid #f5c6d0", background: "#fff" }}>? How it works</button>
+        </div>
       </div>
 
       {isTentative(plan) && (
@@ -847,9 +920,9 @@ function DashboardTab({ plan, allocation, bookings, checklistDone, onToggleCheck
       )}
 
       {tutorial !== "done" && (
-        <TourBanner step={tutorial} onSkip={() => setTutorial("done")}
+        <TourBanner step={inChecklist ? "checklist" : (tutorial as TourStep)} onSkip={() => setTutorial("done")}
           onNext={() => {
-            if (tutorial === "checklist") { setTutorial("agent"); window.setTimeout(() => document.getElementById("agent-panel")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80); }
+            if (inChecklist) { setTutorial("agent"); window.setTimeout(() => document.getElementById("agent-panel")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80); }
             else setTutorial("done");
           }} />
       )}
@@ -862,7 +935,7 @@ function DashboardTab({ plan, allocation, bookings, checklistDone, onToggleCheck
           { label: "Days Left",     value: String(Math.max(0, Math.ceil((new Date(plan.date).getTime() - Date.now()) / 86400000))), sub: isTentative(plan) ? "approx., date not final" : "until the big day", color: "#c93a52" },
         ].map((s) => (
           <div key={s.label} className="bg-white rounded-2xl p-4 sm:p-5 min-w-0" style={{ border: "1px solid #fbe8ec" }}>
-            <div className="text-xs text-gray-600 mb-1">{s.label}</div>
+            <div className="text-xs text-gray-600 mb-1 flex items-center justify-between gap-2"><span>{s.label}</span>{s.label === "Total Budget" && <button onClick={() => setEditingBudget(true)} aria-label="Edit total budget" className="text-sm font-medium underline min-h-9 px-1" style={{ color: "#a8213b" }}>✎ Edit</button>}</div>
             <div className="text-lg sm:text-xl font-semibold break-words" style={{ color: s.color }}>{s.value}</div>
             <div className="text-xs text-gray-600 mt-1">{s.sub}</div>
           </div>
@@ -871,9 +944,9 @@ function DashboardTab({ plan, allocation, bookings, checklistDone, onToggleCheck
 
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 sm:gap-6 items-start">
         {/* Left: what the couple controls */}
-        <div className={`${tutorial === "checklist" ? "order-1" : "order-2"} xl:order-1 xl:col-span-4 space-y-5 sm:space-y-6 min-w-0`}>
-          <div id="checklist-card" className="bg-white rounded-2xl p-4 sm:p-6" style={tutorial === "checklist" ? { border: "2px solid #a8213b", boxShadow: "0 0 0 5px #fdf2f4" } : { border: "1px solid #fbe8ec" }}>
-            {tutorial === "checklist" && <div className="inline-block text-xs font-semibold px-2.5 py-1 rounded-full text-white mb-2" style={{ background: "#a8213b" }}>Start here</div>}
+        <div className={`${inChecklist ? "order-1" : "order-2"} xl:order-1 xl:col-span-4 space-y-5 sm:space-y-6 min-w-0`}>
+          <div id="checklist-card" className="bg-white rounded-2xl p-4 sm:p-6" style={inChecklist ? { border: "2px solid #a8213b", boxShadow: "0 0 0 5px #fdf2f4" } : { border: "1px solid #fbe8ec" }}>
+            {inChecklist && <div className="inline-block text-xs font-semibold px-2.5 py-1 rounded-full text-white mb-2" style={{ background: "#a8213b" }}>Start here</div>}
             <div className="flex items-center justify-between mb-1">
               <h3 className="font-medium text-gray-700 text-sm">Shaadi Checklist</h3>
               <span className="text-xs text-gray-600">{doneCount} of {checklist.length} done</span>
@@ -895,7 +968,7 @@ function DashboardTab({ plan, allocation, bookings, checklistDone, onToggleCheck
                 );
               })}
             </div>
-            {tutorial === "checklist" && (
+            {inChecklist && (
               <button onClick={() => { setTutorial("agent"); window.setTimeout(() => document.getElementById("agent-panel")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80); }}
                 className="mt-4 w-full text-white rounded-xl py-3 font-medium text-sm" style={PRIMARY_BTN}>I've finished my checklist →</button>
             )}
@@ -929,6 +1002,13 @@ function DashboardTab({ plan, allocation, bookings, checklistDone, onToggleCheck
                 {plan.styles!.map((s) => <span key={s} className="px-3 py-1 rounded-full" style={{ background: "#fdf2f4", color: "#a8213b", border: "1px solid #f5c6d0" }}>{s}</span>)}
               </div>
             )}
+            <div className="mt-3 flex items-center gap-2 flex-wrap text-sm text-gray-700">
+              <span>🍽️ Menu:</span>
+              <select value={plan.diet ?? "unsure"} onChange={(e) => onEditPlan({ ...plan, diet: e.target.value as WeddingPlan["diet"] })} aria-label="Wedding menu"
+                className="rounded-lg px-3 py-2 text-sm font-medium bg-white" style={{ border: "1px solid #f5c6d0", color: "#a8213b" }}>
+                <option value="veg">🌿 Vegetarian only</option><option value="both">Veg and non-veg</option><option value="unsure">Not decided yet</option>
+              </select>
+            </div>
             {plan.sameVenue && plan.sameVenue !== "unsure" && (
               <div className="mt-2 text-sm text-gray-700">📍 Ceremony and reception: <span className="font-medium">{plan.sameVenue === "yes" ? "same venue" : "separate venues"}</span></div>
             )}
@@ -936,14 +1016,14 @@ function DashboardTab({ plan, allocation, bookings, checklistDone, onToggleCheck
         </div>
 
         {/* Right: the agent gets the wide area */}
-        <div className={`${tutorial === "checklist" ? "order-2" : "order-1"} xl:order-2 xl:col-span-8 min-w-0 space-y-5 sm:space-y-6`}>
+        <div className={`${inChecklist ? "order-2" : "order-1"} xl:order-2 xl:col-span-8 min-w-0 space-y-5 sm:space-y-6`}>
           <div id="agent-panel" className="space-y-2">
-            {tutorial === "checklist" && <div className="text-sm font-semibold" style={{ color: "#a8213b" }}>Step 2 · the agent unlocks once you've done your checklist</div>}
-            <div className={tutorial === "checklist" ? "opacity-45 select-none" : tutorial === "agent" ? "rounded-2xl" : ""}
+            {inChecklist && <div className="text-sm font-semibold" style={{ color: "#a8213b" }}>Step 2 · the agent unlocks once you've done your checklist</div>}
+            <div className={inChecklist ? "opacity-45 select-none" : tutorial === "agent" ? "rounded-2xl" : ""}
               style={tutorial === "agent" ? { boxShadow: "0 0 0 5px #fdf2f4, 0 0 0 7px #a8213b" } : undefined}
-              {...(tutorial === "checklist" ? { inert: true } : {})}>
+              {...(inChecklist ? { inert: true } : {})}>
           <AgentPanel plan={plan} agent={agent} setAgent={setAgent} setAllocation={setAllocation} completed={doneCategories(checklistDone)} onMessage={onMessage}
-            threads={threads} bookings={bookings} onRequestQuotes={onRequestQuotes} onBook={onBook} goTo={setTab} />
+            threads={threads} bookings={bookings} onRequestQuotes={onRequestQuotes} onBook={onBook} goTo={setTab} allocation={allocation} budgetTouched={budgetTouched} />
             </div>
           </div>
         </div>
@@ -952,6 +1032,10 @@ function DashboardTab({ plan, allocation, bookings, checklistDone, onToggleCheck
       {editing && (
         <EditEventsModal plan={plan} onClose={() => setEditing(false)} onSave={(p) => { onEditPlan(p); setEditing(false); }} />
       )}
+      {introOpen && (
+        <TourIntro first={tutorial === "intro"} onClose={() => setIntroOpen(false)} onStart={() => { setIntroOpen(false); setTutorial("checklist"); }} />
+      )}
+      {editingBudget && <SetBudgetModal plan={plan} onClose={() => setEditingBudget(false)} onSave={(n) => { onEditBudget(n); setEditingBudget(false); }} />}
       {settingDate && (
         <SetDateModal plan={plan} onClose={() => setSettingDate(false)} onSave={(p) => { onEditPlan(p); setSettingDate(false); }} />
       )}
@@ -1004,59 +1088,187 @@ const UNDER_TIPS: Record<Category, string> = {
   logistics:   "Hire a dedicated wedding coordinator to manage day-of timelines.",
 };
 
-function BudgetTab({ plan, allocation, setAllocation }: {
-  plan: WeddingPlan; allocation: BudgetAllocation; setAllocation: (a: BudgetAllocation) => void;
+// What goes wrong when a category is squeezed far below what weddings like theirs need.
+const LOW_RISK: Record<Category, (perPlate: number) => string> = {
+  catering: (p) => `That is only about ${inr(Math.round(p))} a plate. Guests notice food first, and vendors will cut quality or portions at that price.`,
+  attire: () => "Bridal and groom outfits with fittings rarely come in this low. Rental or a ready-made outfit would be the realistic route.",
+  decoration: () => "Mandap, florals and lighting across several events won't stretch this far. You'd be limited to very simple styling.",
+  photography: () => "A good photographer and film team usually costs more than this. You'd likely get one photographer for one event only.",
+  hotels: () => "Venues for your guest count rarely cost this little. You may have to move to a smaller or off-peak venue.",
+  transport: () => "Baraat cars and guest transfers across several days will cost more than this.",
+  music: () => "A DJ plus sound for the sangeet and baraat usually costs more than this.",
+  gifts: () => "Return gifts for every guest will be very basic at this amount.",
+  logistics: () => "Day-of coordination and deliveries are hard to cover at this level, and delays are more likely.",
+};
+
+// Practical ways to cope when a category is squeezed (shown with the "too little" warning)
+const LOW_TIP: Record<Category, string> = {
+  catering: "Shorten the menu or serve a set thali, and keep live counters for one function only.",
+  attire: "Rent outfits for the smaller functions and spend only on the main one.",
+  decoration: "Pick one hero area, like the mandap, and keep the rest simple with seasonal flowers.",
+  photography: "Book one good photographer for the main ceremony only, and ask friends to share their photos for the rest.",
+  hotels: "Look at off-peak dates or a smaller venue, or hold the smaller functions at home.",
+  transport: "Use hired cabs for guests and keep a decorated car for the baraat only.",
+  music: "Use a playlist and a good sound system for most events, and a live dhol for the baraat only.",
+  gifts: "Choose one simple gift for everyone, or limit gifts to close family.",
+  logistics: "Ask a trusted cousin or friend to coordinate and share one timeline with every vendor.",
+};
+
+type Extreme = { k: Category; value: number; before: BudgetAllocation; kind: "high" | "low" };
+
+function BudgetTab({ plan, allocation, setAllocation, resetAllocation, onVendors }: {
+  plan: WeddingPlan; allocation: BudgetAllocation; setAllocation: (a: BudgetAllocation) => void; resetAllocation: () => void; onVendors: () => void;
 }) {
   const [editing, setEditing] = useState<Category | null>(null);
   const [editVal, setEditVal] = useState("");
   const [certOpen, setCertOpen] = useState(false);
   const [certDone, setCertDone] = useState(false);
+  const [extreme, setExtreme] = useState<Extreme | null>(null);
+  const dragStart = useRef<BudgetAllocation | null>(null); // the budget as it was before a slider was picked up
 
   const totalAllocated = Object.values(allocation).reduce((a, b) => a + b, 0);
   const remaining = plan.budget - totalAllocated;
   const overBudget = remaining < 0;
   const underBudget = remaining > plan.budget * 0.05;
+  const days = Math.max(1, plan.schedule.length);
 
   const [lockTotal, setLockTotal] = useState(true);
 
-  // Set one category; with "lock total" on, spread the difference across the others
+  // What the AI would suggest, and what to compare a category against
+  const mlSuggestion = mlAllocate(plan.budget, plan.guestCount);
+  const flags = (Object.keys(allocation) as Category[]).filter((k) => Math.abs(allocation[k] - mlSuggestion[k]) > mlSuggestion[k] * 0.25);
+
+  // Work out the budget after setting one category; with "lock total" on, spread the difference across the others
   // in proportion to their current size so the total stays equal to the budget.
-  const updateCategory = (k: Category, raw: number) => {
+  const withCategory = (base: BudgetAllocation, k: Category, raw: number) => {
     const value = Math.min(plan.budget, Math.max(0, Math.round(raw)));
-    const next = { ...allocation, [k]: value };
+    const next = { ...base, [k]: value };
     if (lockTotal) {
-      const others = (Object.keys(allocation) as Category[]).filter((c) => c !== k);
+      const others = (Object.keys(base) as Category[]).filter((c) => c !== k);
       const target = plan.budget - value;
-      const othersSum = others.reduce((a, c) => a + allocation[c], 0);
-      others.forEach((c) => {
-        next[c] = othersSum > 0 ? Math.round((allocation[c] / othersSum) * target) : Math.round(target / others.length);
-      });
-      // put any rounding leftover on the largest other category
+      const othersSum = others.reduce((a, c) => a + base[c], 0);
+      others.forEach((c) => { next[c] = othersSum > 0 ? Math.round((base[c] / othersSum) * target) : Math.round(target / others.length); });
       const drift = target - others.reduce((a, c) => a + next[c], 0);
       const largest = others.reduce((a, c) => (next[c] > next[a] ? c : a), others[0]);
       next[largest] = Math.max(0, next[largest] + drift);
     }
-    setAllocation(next);
+    return next;
+  };
+  const updateCategory = (k: Category, raw: number) => setAllocation(withCategory(allocation, k, raw));
+
+  // After a slider is let go (or a number typed), is the result so far from a realistic plan that we should say so?
+  const checkExtreme = (k: Category, value: number, before: BudgetAllocation) => {
+    const ml = mlSuggestion[k];
+    if (value >= ml * 1.9 && value - ml >= plan.budget * 0.08) setExtreme({ k, value, before, kind: "high" });
+    else if (value <= ml * 0.4 && ml - value >= plan.budget * 0.03) setExtreme({ k, value, before, kind: "low" });
   };
 
   const saveEdit = (k: Category) => {
-    updateCategory(k, parseInt(editVal) || 0);
+    const value = parseInt(editVal) || 0;
+    const before = allocation;
+    updateCategory(k, value);
     setEditing(null);
+    checkExtreme(k, value, before);
   };
 
-  // Categories that are over their ML suggestion
-  const mlSuggestion = mlAllocate(plan.budget, plan.guestCount);
-  const flags = (Object.keys(allocation) as Category[]).filter((k) => {
-    const diff = allocation[k] - mlSuggestion[k];
-    return Math.abs(diff) > mlSuggestion[k] * 0.25;
-  });
+  // The note shown inside the pop-up: what it costs the rest of the budget, or what the squeeze means
+  const extremeText = (e: Extreme) => {
+    const pct = Math.round((e.value / plan.budget) * 100);
+    const meta = CATEGORY_META[e.k];
+    if (e.kind === "high") {
+      const othersBefore = plan.budget - e.before[e.k];
+      const othersAfter = plan.budget - e.value;
+      const shrink = othersBefore > 0 ? Math.round((1 - othersAfter / othersBefore) * 100) : 0;
+      return {
+        title: "This might not work",
+        lead: `You've put ${inr(e.value)} (${pct}% of your total) into ${meta.label}. For ${plan.guestCount} guests, weddings like yours usually spend ${inr(Math.round(mlSuggestion[e.k] * 0.75))} to ${inr(Math.round(mlSuggestion[e.k] * 1.3))} here.`,
+        why: lockTotal
+          ? `To pay for it, every other category would have to shrink by about ${shrink}%. That usually leaves something essential underfunded.`
+          : `With "Total locked" off, this takes your plan ${inr(Math.max(0, totalAllocated - plan.budget))} past your total budget.`,
+        tip: OVER_TIPS[e.k],
+      };
+    }
+    return {
+      title: "That may be too little",
+      lead: `You've set ${meta.label} to ${inr(e.value)} (${pct}% of your total). For ${plan.guestCount} guests, weddings like yours usually spend ${inr(Math.round(mlSuggestion[e.k] * 0.75))} to ${inr(Math.round(mlSuggestion[e.k] * 1.3))} here.`,
+      why: LOW_RISK[e.k](e.value / (plan.guestCount * days)),
+      tip: LOW_TIP[e.k],
+    };
+  };
+
+  // The ideas card. It sits in the right column on wide screens and under the summary on narrow ones.
+  const ideas = (
+    <div className="rounded-2xl overflow-hidden" style={{ border: "2px solid #c08a0c", boxShadow: "0 8px 24px rgba(168, 33, 59, 0.18)" }}>
+      <div className="px-5 py-3.5 flex items-center gap-3" style={{ background: overBudget ? "linear-gradient(135deg, #7a1428, #a8213b)" : "linear-gradient(135deg, #a8213b, #881a30)" }}>
+        <span className="w-9 h-9 rounded-full flex items-center justify-center text-lg shrink-0" style={{ background: "rgba(255,255,255,0.18)" }} aria-hidden="true">{overBudget ? "⚠️" : "💡"}</span>
+        <div className="min-w-0">
+          <div className="text-lg font-semibold text-white leading-tight">{overBudget ? "Over-budget recommendations" : "Smart savings & upgrade ideas"}</div>
+          <div className="text-xs text-white/85">Based on how your budget differs from the AI plan</div>
+        </div>
+      </div>
+      <div className="p-4 sm:p-5 space-y-3" style={{ background: "linear-gradient(180deg, #fffaf0, #ffffff)" }}>
+        {flags.slice(0, 4).map((k) => {
+          const isOver = allocation[k] > mlSuggestion[k];
+          return (
+            <div key={k} className="rounded-xl p-3 flex items-start gap-3" style={{ background: "#fff", border: `1px solid ${isOver ? "#f5c6d0" : "#f0dc9a"}` }}>
+              <span className="text-xs font-bold px-2 py-1 rounded-full shrink-0 mt-0.5" style={isOver ? { background: "#fdf2f4", color: "#a8213b" } : { background: "#fff3cf", color: "#7a5206" }}>{isOver ? "↑ Trim" : "↓ Upgrade"}</span>
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-gray-800">{CATEGORY_META[k].icon} {CATEGORY_META[k].label}</div>
+                <div className="text-sm text-gray-700 leading-snug mt-0.5">{isOver ? OVER_TIPS[k] : UNDER_TIPS[k]}</div>
+              </div>
+            </div>
+          );
+        })}
+        {flags.length === 0 && !overBudget && !underBudget && (
+          <div className="rounded-xl p-3 text-sm text-gray-800" style={{ background: "#f3faf0", border: "1px solid #cfe6c4" }}>✓ You're right in line with the AI's plan. Move a slider and ideas will appear here.</div>
+        )}
+        {overBudget && <div className="rounded-xl p-3 text-sm text-gray-800" style={{ background: "#fdf2f4", border: "1px solid #f5c6d0" }}><span className="font-semibold">Overall:</span> consider splitting functions. Mehendi and Haldi at home can cut venue costs by up to ₹2 to 3 lakh.</div>}
+        {underBudget && !overBudget && <div className="rounded-xl p-3 text-sm text-gray-800" style={{ background: "#fff3cf", border: "1px solid #f0dc9a" }}><span className="font-semibold">Room to spare:</span> {inr(remaining)} is unallocated. A professional wedding MC elevates the whole reception.</div>}
+      </div>
+    </div>
+  );
+
+  const glance = (
+    <div className="bg-white rounded-2xl p-4 sm:p-5 space-y-3" style={{ border: "1px solid #fbe8ec" }}>
+      <h3 className="text-sm font-semibold uppercase tracking-wider" style={{ color: "#a8213b" }}>Your budget at a glance</h3>
+      <div className="grid grid-cols-2 gap-3">
+        {[
+          { label: "Per guest", value: inr(Math.round(plan.budget / plan.guestCount)) },
+          { label: "Guests", value: String(plan.guestCount) },
+          { label: "Biggest spend", value: CATEGORY_META[(Object.keys(allocation) as Category[]).reduce((a, c) => (allocation[c] > allocation[a] ? c : a))].label },
+          { label: "Differs from AI", value: `${flags.length} categor${flags.length === 1 ? "y" : "ies"}` },
+        ].map((s) => (
+          <div key={s.label} className="rounded-xl p-3 min-w-0" style={{ background: "#fdf8f0", border: "1px solid #fbe8ec" }}>
+            <div className="text-xs text-gray-700">{s.label}</div>
+            <div className="text-base font-semibold text-gray-800 break-words">{s.value}</div>
+          </div>
+        ))}
+      </div>
+      <button onClick={onVendors} className="w-full rounded-xl py-3 text-sm font-medium text-white" style={PRIMARY_BTN}>See vendors that fit these budgets →</button>
+    </div>
+  );
+
+  const why = (
+    <details className="rounded-2xl p-4 sm:p-5 group" style={{ background: "linear-gradient(135deg, #fdf2f4, #fefdf0)", border: "1px solid #f5c6d0" }}>
+      <summary className="cursor-pointer list-none flex items-center gap-3 min-h-9">
+        <span className="w-7 h-7 rounded-full flex items-center justify-center text-sm shrink-0" style={{ background: "#f5c6d0" }} aria-hidden="true">✦</span>
+        <span className="text-sm font-medium flex-1" style={{ color: "#a8213b" }}>How our AI allocates your budget</span>
+        <span className="text-xs text-gray-700 group-open:hidden">Show</span>
+      </summary>
+      <p className="text-sm text-gray-700 leading-relaxed mt-3">
+        We analysed thousands of Indian weddings with {plan.guestCount} guests. Catering takes {Math.round((mlSuggestion.catering / plan.budget) * 100)}% of the AI plan, because hospitality is the heart of an Indian wedding. Allocations shift for destination weddings, large baraats and intimate gatherings. Edit any category; the indicator flags it when you move far from our recommendation.
+      </p>
+    </details>
+  );
+
+  const ex = extreme ? extremeText(extreme) : null;
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-4xl space-y-5 sm:space-y-6">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-[1500px] mx-auto w-full space-y-5 sm:space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
         <div>
           <h1 className="text-3xl font-medium text-gray-800">Budget Planner</h1>
-          <p className="text-sm text-gray-600 mt-1">AI-suggested allocations for {plan.guestCount} guests.</p>
+          <p className="text-sm text-gray-600 mt-1">AI-suggested allocations for {plan.guestCount} guests. The agent and the vendor list use the numbers you set here.</p>
         </div>
         <div className="flex gap-2 flex-wrap [&>button]:py-2.5 [&>button]:text-sm">
           <button onClick={() => setLockTotal(!lockTotal)}
@@ -1064,7 +1276,7 @@ function BudgetTab({ plan, allocation, setAllocation }: {
             style={lockTotal ? { background: "#fdf2f4", color: "#a8213b", border: "1px solid #a8213b" } : { color: "#1a1a1a", border: "1px solid #e5e5e5" }}>
             {lockTotal ? "🔒 Total locked" : "🔓 Total free"}
           </button>
-          <button onClick={() => setAllocation(mlAllocate(plan.budget, plan.guestCount))}
+          <button onClick={resetAllocation}
             className="text-xs px-4 py-2 rounded-xl text-white font-medium transition-all sparkle-btn hover:brightness-110 active:scale-95"
             style={{ background: "linear-gradient(135deg, #a8213b, #881a30)", boxShadow: "0 2px 6px rgba(168,33,59,0.3)" }}>✦ Reset to AI</button>
           <button onClick={() => setCertOpen(true)}
@@ -1075,130 +1287,116 @@ function BudgetTab({ plan, allocation, setAllocation }: {
         </div>
       </div>
 
-      {/* Summary bar */}
-      <div className="bg-white rounded-2xl p-4 sm:p-6" style={{ border: "1px solid #fbe8ec" }}>
-        <div className="flex items-center justify-between mb-3">
-          <span className="text-sm font-medium text-gray-700">Total Allocated</span>
-          <span className="text-sm font-semibold" style={{ color: overBudget ? "#c93a52" : "#a8213b" }}>
-            {inr(totalAllocated)} / {inr(plan.budget)}
-          </span>
-        </div>
-        <div className="h-3 rounded-full overflow-hidden" style={{ background: "#fdf2f4" }}>
-          <div className="h-full rounded-full transition-all" style={{
-            width: `${Math.min(110, (totalAllocated / plan.budget) * 100)}%`,
-            background: overBudget ? "linear-gradient(to right, #c93a52, #a8213b)" : "linear-gradient(to right, #a8213b, #c08a0c)"
-          }} />
-        </div>
-        <div className={`mt-2 text-xs font-medium ${overBudget ? "text-red-500" : underBudget ? "text-amber-600" : "text-gray-400"}`}>
-          {overBudget ? `⚠ ${inr(Math.abs(remaining))} over budget` : underBudget ? `✦ ${inr(remaining)} still unallocated` : `✓ Budget fully allocated`}
-        </div>
-
-        {/* Legend */}
-        <div className="mt-4 grid grid-cols-1 min-[420px]:grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-2">
-          {(Object.keys(allocation) as Category[]).map((k) => (
-            <div key={k} className="flex items-center gap-2 min-w-0">
-              <div className="w-2 h-2 rounded-full shrink-0" style={{ background: CATEGORY_META[k].color }} />
-              <span className="text-xs text-gray-700 truncate">{CATEGORY_META[k].label}</span>
-              <span className="text-xs text-gray-600 ml-auto">{Math.round((allocation[k] / plan.budget) * 100)}%</span>
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 sm:gap-6 items-start">
+        <div className="xl:col-span-8 space-y-5 sm:space-y-6 min-w-0">
+          {/* Summary bar */}
+          <div className="bg-white rounded-2xl p-4 sm:p-6" style={{ border: "1px solid #fbe8ec" }}>
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-sm font-medium text-gray-700">Total Allocated</span>
+              <span className="text-sm font-semibold" style={{ color: overBudget ? "#c93a52" : "#a8213b" }}>
+                {inr(totalAllocated)} / {inr(plan.budget)}
+              </span>
             </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Smart recommendations banner */}
-      {(overBudget || underBudget || flags.length > 0) && (
-        <div className="rounded-2xl p-5 space-y-3" style={{ background: overBudget ? "#fff5f5" : "#fffdf0", border: `1px solid ${overBudget ? "#f5c6d0" : "#fbf0a1"}` }}>
-          <div className="flex items-center gap-2">
-            <span className="text-base">{overBudget ? "⚠️" : "💡"}</span>
-            <span className="text-sm font-semibold" style={{ color: overBudget ? "#a8213b" : "#9a6a0a" }}>
-              {overBudget ? "Over-budget recommendations" : "Smart savings & upgrade ideas"}
-            </span>
+            <div className="h-3 rounded-full overflow-hidden" style={{ background: "#fdf2f4" }}>
+              <div className="h-full rounded-full transition-all" style={{
+                width: `${Math.min(110, (totalAllocated / plan.budget) * 100)}%`,
+                background: overBudget ? "linear-gradient(to right, #c93a52, #a8213b)" : "linear-gradient(to right, #a8213b, #c08a0c)"
+              }} />
+            </div>
+            <div className={`mt-2 text-sm font-medium ${overBudget ? "text-red-600" : underBudget ? "text-amber-700" : "text-gray-700"}`}>
+              {overBudget ? `⚠ ${inr(Math.abs(remaining))} over budget` : underBudget ? `✦ ${inr(remaining)} still unallocated` : `✓ Budget fully allocated`}
+            </div>
+            <div className="mt-4 grid grid-cols-1 min-[420px]:grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-2">
+              {(Object.keys(allocation) as Category[]).map((k) => (
+                <div key={k} className="flex items-center gap-2 min-w-0">
+                  <div className="w-2 h-2 rounded-full shrink-0" style={{ background: CATEGORY_META[k].color }} />
+                  <span className="text-xs text-gray-700 truncate">{CATEGORY_META[k].label}</span>
+                  <span className="text-xs text-gray-600 ml-auto">{Math.round((allocation[k] / plan.budget) * 100)}%</span>
+                </div>
+              ))}
+            </div>
           </div>
-          <div className="space-y-2">
-            {flags.slice(0, 3).map((k) => {
-              const isOver = allocation[k] > mlSuggestion[k];
-              const tip = isOver ? OVER_TIPS[k] : UNDER_TIPS[k];
+
+          <div className="xl:hidden">{ideas}</div>
+
+          {/* Category cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-3 gap-4">
+            {(Object.keys(allocation) as Category[]).map((k) => {
+              const isOver = allocation[k] > mlSuggestion[k] * 1.3;
+              const isUnder = allocation[k] < mlSuggestion[k] * 0.7;
               return (
-                <div key={k} className="flex items-start gap-2">
-                  <span className="text-xs mt-0.5" style={{ color: isOver ? "#c93a52" : "#9a6a0a" }}>{isOver ? "↑" : "↓"}</span>
-                  <div>
-                    <span className="text-xs font-medium text-gray-700">{CATEGORY_META[k].icon} {CATEGORY_META[k].label}: </span>
-                    <span className="text-xs text-gray-500">{tip}</span>
+                <div key={k} className="bg-white rounded-2xl p-4 group transition-all hover:shadow-sm relative"
+                  style={{ border: `1px solid ${isOver ? "#f5c6d0" : isUnder ? "#fbf0a1" : "#fbe8ec"}` }}>
+                  {isOver && <div className="absolute top-3 right-3 text-xs px-1.5 py-0.5 rounded-full" style={{ background: "#fdf2f4", color: "#c93a52" }}>↑ High</div>}
+                  {isUnder && <div className="absolute top-3 right-3 text-xs px-1.5 py-0.5 rounded-full" style={{ background: "#fffdf0", color: "#9a6a0a" }}>↓ Low</div>}
+                  <div className="flex items-center gap-2 mb-3 pr-10">
+                    <span className="text-xl">{CATEGORY_META[k].icon}</span>
+                    <span className="text-xs font-medium text-gray-600">{CATEGORY_META[k].label}</span>
+                  </div>
+                  {editing === k ? (
+                    <div className="flex gap-2">
+                      <input autoFocus type="number" value={editVal}
+                        onChange={(e) => setEditVal(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && saveEdit(k)}
+                        className="flex-1 rounded-lg px-2 py-1.5 text-sm focus:outline-none"
+                        style={{ border: "1px solid #f5c6d0" }} />
+                      <button onClick={() => saveEdit(k)} className="text-xs text-white px-3 rounded-lg" style={{ background: "#a8213b" }}>✓</button>
+                      <button onClick={() => setEditing(null)} className="text-xs text-gray-400 px-2">✕</button>
+                    </div>
+                  ) : (
+                    <div className="flex items-end justify-between">
+                      <div className="text-xl font-semibold" style={{ color: "#a8213b" }}>{inr(allocation[k])}</div>
+                      <button onClick={() => { setEditing(k); setEditVal(String(allocation[k])); }}
+                        className="text-sm underline px-3 py-3 -mr-3 -my-2"
+                        style={{ color: "#a8213b" }}>edit</button>
+                    </div>
+                  )}
+                  <input type="range" min={0} max={plan.budget} step={5000} value={allocation[k]}
+                    onChange={(e) => updateCategory(k, Number(e.target.value))}
+                    onPointerDown={() => { dragStart.current = allocation; }}
+                    onKeyDown={() => { if (!dragStart.current) dragStart.current = allocation; }}
+                    onPointerUp={() => { if (dragStart.current) { checkExtreme(k, allocation[k], dragStart.current); dragStart.current = null; } }}
+                    onKeyUp={() => { if (dragStart.current) { checkExtreme(k, allocation[k], dragStart.current); dragStart.current = null; } }}
+                    aria-label={`${CATEGORY_META[k].label} budget`}
+                    className="budget-slider mt-3 w-full cursor-pointer"
+                    style={{ "--c": CATEGORY_META[k].color, "--p": `${(allocation[k] / plan.budget) * 100}%` } as React.CSSProperties} />
+                  <div className="text-xs text-gray-600 mt-1">
+                    {Math.round((allocation[k] / plan.budget) * 100)}% · AI suggests {inr(mlSuggestion[k])}
                   </div>
                 </div>
               );
             })}
-            {overBudget && (
-              <div className="flex items-start gap-2 pt-1">
-                <span className="text-xs mt-0.5 text-gray-400">→</span>
-                <span className="text-xs text-gray-500">Overall tip: Consider splitting functions — Mehendi + Haldi at home reduces venue costs by up to ₹2–3 lakhs.</span>
+          </div>
+        </div>
+
+        <div className="xl:col-span-4 space-y-5 sm:space-y-6 min-w-0 xl:sticky xl:top-4">
+          <div className="hidden xl:block">{ideas}</div>
+          {glance}
+          {why}
+        </div>
+      </div>
+
+      {/* Pop-up when a slider is taken far from a workable plan */}
+      {extreme && ex && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4" style={{ background: "rgba(0,0,0,0.5)" }} onClick={() => setExtreme(null)} role="dialog" aria-modal="true" aria-label={ex.title}>
+          <div className="w-full max-w-md max-h-[92dvh] overflow-y-auto rounded-t-3xl sm:rounded-3xl bg-white p-5 sm:p-7 space-y-4" style={{ borderTop: "4px solid #c93a52", paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom))" }} onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-3">
+              <span className="w-11 h-11 rounded-full flex items-center justify-center text-2xl shrink-0" style={{ background: "#fdf2f4" }} aria-hidden="true">⚠️</span>
+              <h3 className="text-2xl font-medium text-gray-800">{ex.title}</h3>
+            </div>
+            <p className="text-base text-gray-800 leading-relaxed">{ex.lead}</p>
+            <div className="rounded-xl p-3.5 text-sm text-gray-800 leading-relaxed" style={{ background: "#fdf2f4", border: "1px solid #f5c6d0" }}>{ex.why}</div>
+            <div className="rounded-xl p-3.5 text-sm text-gray-800 leading-relaxed" style={{ background: "#fff7d6", border: "1px solid #e8c75a" }}><span className="font-semibold">A better way: </span>{ex.tip}</div>
+            <div className="space-y-2 pt-1">
+              <button onClick={() => { updateCategory(extreme.k, mlSuggestion[extreme.k]); setExtreme(null); }} className="w-full text-white rounded-xl py-3.5 font-medium text-sm" style={PRIMARY_BTN}>Use the recommended {inr(mlSuggestion[extreme.k])}</button>
+              <div className="flex gap-2">
+                <button onClick={() => { setAllocation(extreme.before); setExtreme(null); }} className="flex-1 rounded-xl py-3 text-sm font-medium" style={{ color: "#a8213b", border: "1px solid #f5c6d0" }}>Go back</button>
+                <button onClick={() => setExtreme(null)} className="flex-1 rounded-xl py-3 text-sm font-medium text-gray-800" style={{ border: "1px solid #ddd" }}>Keep my number</button>
               </div>
-            )}
-            {underBudget && !overBudget && (
-              <div className="flex items-start gap-2 pt-1">
-                <span className="text-xs mt-0.5 text-gray-400">→</span>
-                <span className="text-xs text-gray-500">You have room to add a professional wedding MC/anchor — they elevate the entire reception experience.</span>
-              </div>
-            )}
+            </div>
           </div>
         </div>
       )}
-
-      {/* Category cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {(Object.keys(allocation) as Category[]).map((k) => {
-          const isOver = allocation[k] > mlSuggestion[k] * 1.3;
-          const isUnder = allocation[k] < mlSuggestion[k] * 0.7;
-          return (
-            <div key={k} className="bg-white rounded-2xl p-4 group transition-all hover:shadow-sm relative"
-              style={{ border: `1px solid ${isOver ? "#f5c6d0" : isUnder ? "#fbf0a1" : "#fbe8ec"}` }}>
-              {isOver && <div className="absolute top-3 right-3 text-xs px-1.5 py-0.5 rounded-full" style={{ background: "#fdf2f4", color: "#c93a52" }}>↑ High</div>}
-              {isUnder && <div className="absolute top-3 right-3 text-xs px-1.5 py-0.5 rounded-full" style={{ background: "#fffdf0", color: "#9a6a0a" }}>↓ Low</div>}
-              <div className="flex items-center gap-2 mb-3 pr-10">
-                <span className="text-xl">{CATEGORY_META[k].icon}</span>
-                <span className="text-xs font-medium text-gray-600">{CATEGORY_META[k].label}</span>
-              </div>
-              {editing === k ? (
-                <div className="flex gap-2">
-                  <input autoFocus type="number" value={editVal}
-                    onChange={(e) => setEditVal(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && saveEdit(k)}
-                    className="flex-1 rounded-lg px-2 py-1.5 text-sm focus:outline-none"
-                    style={{ border: "1px solid #f5c6d0" }} />
-                  <button onClick={() => saveEdit(k)} className="text-xs text-white px-3 rounded-lg" style={{ background: "#a8213b" }}>✓</button>
-                  <button onClick={() => setEditing(null)} className="text-xs text-gray-400 px-2">✕</button>
-                </div>
-              ) : (
-                <div className="flex items-end justify-between">
-                  <div className="text-xl font-semibold" style={{ color: "#a8213b" }}>{inr(allocation[k])}</div>
-                  <button onClick={() => { setEditing(k); setEditVal(String(allocation[k])); }}
-                    className="text-sm underline px-3 py-3 -mr-3 -my-2"
-                    style={{ color: "#a8213b" }}>edit</button>
-                </div>
-              )}
-              <input type="range" min={0} max={plan.budget} step={5000} value={allocation[k]}
-                onChange={(e) => updateCategory(k, Number(e.target.value))}
-                aria-label={`${CATEGORY_META[k].label} budget`}
-                className="budget-slider mt-3 w-full cursor-pointer"
-                style={{ "--c": CATEGORY_META[k].color, "--p": `${(allocation[k] / plan.budget) * 100}%` } as React.CSSProperties} />
-              <div className="text-xs text-gray-600 mt-1">
-                {Math.round((allocation[k] / plan.budget) * 100)}% · AI suggests {inr(mlSuggestion[k])}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* ML explanation */}
-      <div className="rounded-2xl p-5 flex gap-4 items-start" style={{ background: "linear-gradient(135deg, #fdf2f4, #fefdf0)", border: "1px solid #f5c6d0" }}>
-        <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-sm" style={{ background: "#f5c6d0" }}>✦</div>
-        <div>
-          <div className="text-sm font-medium mb-1" style={{ color: "#a8213b" }}>How our AI allocates your budget</div>
-          <p className="text-xs text-gray-500 leading-relaxed">
-            We analysed thousands of Indian weddings with {plan.guestCount} guests. Catering takes {Math.round((allocation.catering / plan.budget) * 100)}% — hospitality is the heart of an Indian wedding. Allocations shift automatically for destination weddings, large baraats, and intimate gatherings. Edit any category; the indicator flags when you deviate significantly from our recommendation.
-          </p>
-        </div>
-      </div>
 
       {/* Certificate slide-up panel */}
       {certOpen && (
@@ -1216,7 +1414,7 @@ function BudgetTab({ plan, allocation, setAllocation }: {
             <div className="rounded-2xl p-6 text-center" style={{ background: "linear-gradient(135deg, #fdf2f4, #fefdf0)", border: "2px solid #c08a0c" }}>
               <div className="text-3xl mb-2">🏅</div>
               <div className="text-lg font-medium mb-1" style={{ color: "#a8213b" }}>Shaadi Budget Plan</div>
-              <div className="text-sm text-gray-500 mb-4">{plan.name} & {plan.partnerName} · {new Date(plan.date).toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })}</div>
+              <div className="text-sm text-gray-500 mb-4">{plan.name} & {plan.partnerName} · {dateLabel(plan)}</div>
               <div className="grid grid-cols-2 gap-3 text-left mb-4">
                 <div className="bg-white rounded-xl p-3" style={{ border: "1px solid #f5c6d0" }}>
                   <div className="text-xs text-gray-400">Total Budget</div>
@@ -1343,6 +1541,14 @@ function VendorPhoto({ vendor, className, width, height, eager = false }: { vend
       {vendor.source === "osm" && <span className="absolute bottom-1.5 right-2 text-[0.65rem] px-1.5 py-0.5 rounded" style={{ background: "rgba(0,0,0,0.6)", color: "#fff" }}>Representative photo</span>}
     </div>
   );
+}
+
+// What a caterer or venue serves, as a badge. With "vegetarian only" chosen, an unknown menu is flagged so it gets asked about.
+function foodBadge(v: { category: Category; food?: "veg" | "nonveg" | "unknown" | null }, vegOnly: boolean): Badge | null {
+  if (v.category !== "catering" && v.category !== "hotels") return null;
+  if (v.food === "veg") return { label: "🌿 Pure veg", tone: "green" };
+  if (v.food === "nonveg") return { label: "🍗 Serves non-veg", tone: "rose" };
+  return vegOnly ? { label: "Menu not confirmed: ask for veg", tone: "gold" } : null;
 }
 
 function BadgeRow({ badges, className = "" }: { badges: Badge[]; className?: string }) {
@@ -1537,6 +1743,8 @@ function VendorsTab({ plan, cities, city, setCity, bookings, onToggleBook, onMes
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<VendorSort>("score");
   const [radius, setRadius] = useState<number>(plan.radiusKm ?? 0); // 0 = any distance
+  const [vegOnly, setVegOnly] = useState(plan.diet === "veg"); // hide caterers and venues that clearly serve non-veg food
+  const [fitOnly, setFitOnly] = useState(false); // only vendors whose typical price fits the category budget set on the Budget page
   const [saved, setSaved] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<MarketVendor | null>(null);
   const [vendors, setVendors] = useState<MarketVendor[]>([]);
@@ -1561,6 +1769,8 @@ function VendorsTab({ plan, cities, city, setCity, bookings, onToggleBook, onMes
     const rows = vendors.filter((v) =>
       (activeCategory === "all" || v.category === activeCategory) &&
       (!radius || v.distanceKm <= radius) &&
+      (!fitOnly || v.estCost <= (allocation[v.category] ?? Infinity)) &&
+      (!vegOnly || v.food !== "nonveg") &&
       (!q || v.name.toLowerCase().includes(q) || v.area.toLowerCase().includes(q)));
     const by: Record<VendorSort, (a: MarketVendor, b: MarketVendor) => number> = {
       score: (a, b) => (b.partnerScore ?? 0) - (a.partnerScore ?? 0),
@@ -1568,7 +1778,7 @@ function VendorsTab({ plan, cities, city, setCity, bookings, onToggleBook, onMes
       distance: (a, b) => a.distanceKm - b.distanceKm,
     };
     return [...rows].sort(by[sort]);
-  }, [vendors, activeCategory, search, sort, radius]);
+  }, [vendors, activeCategory, search, sort, radius, fitOnly, vegOnly, allocation]);
 
   const toggle = (id: string) => setSaved((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
@@ -1579,7 +1789,7 @@ function VendorsTab({ plan, cities, city, setCity, bookings, onToggleBook, onMes
 
   if (selected) {
     return <VendorDetail vendor={selected} plan={plan} saved={saved.has(selected.id)} booked={bookings.some((b) => b.vendorId === selected.id)}
-      badges={badgesFor(selected)} categoryBudget={allocation[selected.category]}
+      badges={[...(foodBadge(selected, plan.diet === "veg") ? [foodBadge(selected, plan.diet === "veg")!] : []), ...badgesFor(selected)]} categoryBudget={allocation[selected.category]}
       onToggleSave={() => toggle(selected.id)} onToggleBook={onToggleBook} onBack={() => setSelected(null)} onMessage={onMessage} />;
   }
 
@@ -1607,6 +1817,14 @@ function VendorsTab({ plan, cities, city, setCity, bookings, onToggleBook, onMes
           <input className="w-full pl-8 pr-4 py-3 sm:py-2.5 bg-white rounded-xl text-sm focus:outline-none" style={{ border: "1px solid #fbe8ec" }}
             placeholder={`Search vendors or areas in ${city || "your city"}…`} value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
+        <label className="inline-flex items-center gap-2 text-sm text-gray-800 min-h-11 cursor-pointer" title="Hides caterers and venues that clearly serve non-veg food">
+          <input type="checkbox" checked={vegOnly} onChange={(e) => setVegOnly(e.target.checked)} className="w-5 h-5 accent-[#a8213b]" />
+          🌿 Vegetarian only
+        </label>
+        <label className="inline-flex items-center gap-2 text-sm text-gray-800 min-h-11 cursor-pointer" title="Uses the category budgets from your Budget page">
+          <input type="checkbox" checked={fitOnly} onChange={(e) => setFitOnly(e.target.checked)} className="w-5 h-5 accent-[#a8213b]" />
+          Within my budget
+        </label>
         <label className="inline-flex items-center gap-2 text-sm text-gray-700">
           Within
           <select value={radius} onChange={(e) => setRadius(Number(e.target.value))} className="rounded-xl px-3 py-2.5 bg-white text-sm focus:outline-none" style={{ border: "1px solid #fbe8ec" }}>
@@ -1660,7 +1878,7 @@ function VendorsTab({ plan, cities, city, setCity, bookings, onToggleBook, onMes
                       <div className="font-medium text-gray-800 text-sm">{v.name}</div>
                       <div className="text-xs text-gray-700 mt-0.5">{CATEGORY_META[v.category].icon} {CATEGORY_META[v.category].label}</div>
                       <div className="text-xs text-gray-600 mt-0.5">{v.area ? `${v.area} · ` : ""}{v.distanceKm} km from centre</div>
-                      <BadgeRow badges={badgesFor(v).slice(0, 2)} className="mt-1.5" />
+                      <BadgeRow badges={[...(foodBadge(v, vegOnly) ? [foodBadge(v, vegOnly)!] : []), ...badgesFor(v)].slice(0, 3)} className="mt-1.5" />
                     </div>
                     <div className="text-right shrink-0">
                       {v.priceBand && <div className="text-xs font-semibold" style={{ color: "#c08a0c" }}>{v.priceBand}</div>}
@@ -1887,7 +2105,7 @@ interface AgentEvent { step: number; title: string; detail: string; status: "don
 interface AgentPick {
   id: string; name: string; area: string; category: Category; tier: number; rating: number;
   estCost: number; fit: "within" | "stretch" | "over"; score: number; reasons: string[];
-  source: "osm" | "sample"; rated: boolean; phone: string | null;
+  source: "osm" | "sample"; rated: boolean; phone: string | null; food?: "veg" | "nonveg" | "unknown" | null;
 }
 interface AgentResult {
   events: AgentEvent[];
@@ -1906,7 +2124,7 @@ function defaultObjective(plan: WeddingPlan) {
   const look = plan.styles?.length
     ? `I'd like a ${plan.styles.map((s) => s.toLowerCase()).join(", ")} wedding with a premium look.`
     : "I want a premium-looking wedding.";
-  return `My budget is ${budget}. About ${plan.guestCount} guests. ${plan.location}. Wedding in ${when}. ${look} I don't want to exceed my budget.`;
+  return `My budget is ${budget}. About ${plan.guestCount} guests. ${plan.location}. Wedding in ${when}. ${look}${plan.diet === "veg" ? " The menu must be vegetarian only." : ""} I don't want to exceed my budget.`;
 }
 const STATUS_STYLE: Record<AgentEvent["status"], { icon: string; color: string; bg: string }> = {
   done:    { icon: "✓", color: "#2f6b1f", bg: "#f3faf0" },
@@ -1920,11 +2138,12 @@ const FIT_STYLE: Record<AgentPick["fit"], { label: string; color: string; bg: st
   over:    { label: "Over allocation",   color: "#a8213b", bg: "#fdf2f4" },
 };
 
-function AgentPanel({ plan, agent, setAgent, setAllocation, completed, onMessage, threads, bookings, onRequestQuotes, onBook, goTo }: {
+function AgentPanel({ plan, agent, setAgent, setAllocation, completed, onMessage, threads, bookings, onRequestQuotes, onBook, goTo, allocation, budgetTouched }: {
   plan: WeddingPlan; agent: AgentState; setAgent: (fn: (a: AgentState) => AgentState) => void; setAllocation: (a: BudgetAllocation) => void;
   completed: Category[]; // categories the couple already marked done on the checklist
   onMessage: (v: VendorRef) => void; // opens a chat with a vendor the agent suggested
   threads: Thread[]; bookings: Booking[]; goTo: (t: Tab) => void;
+  allocation: BudgetAllocation; budgetTouched: boolean; // the budget the couple has set, used by the agent once they have changed it
   onRequestQuotes: (vs: VendorRef[]) => void; // the agent writes to several vendors at once
   onBook: (v: VendorRef, amount: number) => void;
 }) {
@@ -1949,7 +2168,7 @@ function AgentPanel({ plan, agent, setAgent, setAllocation, completed, onMessage
     try {
       const res = await fetch(`${API_BASE}/api/agent/run`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan, objective: agent.objective, completed }),
+        body: JSON.stringify({ plan, objective: agent.objective, completed, allocation: budgetTouched ? allocation : undefined }),
       });
       if (!res.ok) throw new Error(`The agent returned an error (${res.status}).`);
       const data: AgentResult = await res.json();
@@ -2211,6 +2430,7 @@ function AgentPanel({ plan, agent, setAgent, setAllocation, completed, onMessage
                               {i === 0 && <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: "#a8213b", color: "#fff" }}>Top pick</span>}
                               <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: f.bg, color: f.color, border: `1px solid ${f.color}` }}>{f.label}</span>
                             </div>
+                            {foodBadge(p, plan.diet === "veg") && <BadgeRow badges={[foodBadge(p, plan.diet === "veg")!]} className="my-1" />}
                             <div className="text-sm text-gray-700">{p.area} · est. {inr(p.estCost)}</div>
                             <div className="text-xs text-gray-600">{p.reasons.slice(0, 2).join(" · ")}</div>
                           </div>
@@ -2338,7 +2558,7 @@ function ComingSoonTab({ icon, title, blurb }: { icon: string; title: string; bl
 
 // What is kept in the browser between visits.
 interface SavedState {
-  tutorial: Tutorial; plan: WeddingPlan; tab: Tab; allocation: BudgetAllocation; threads: Thread[]; activeThreadId: string; bookings: Booking[];
+  budgetTouched: boolean; tutorial: Tutorial; plan: WeddingPlan; tab: Tab; allocation: BudgetAllocation; threads: Thread[]; activeThreadId: string; bookings: Booking[];
   agent: AgentState; payments: Payment[]; guests: Guest[]; deliveries: Delivery[]; checklist: string[];
 }
 
@@ -2354,6 +2574,8 @@ function CoupleApp({ session, onLogout, onSwitchRole }: { session: Session; onLo
   const [activeThreadId, setActiveThreadId] = useState(saved.activeThreadId ?? "");
   const [bookings, setBookings] = useState<Booking[]>(saved.bookings ?? []);
   const [agent, setAgent] = useState<AgentState>(saved.agent ?? { objective: "", result: null, applied: false });
+  // True once the couple has moved a slider or applied the agent's budget: from then on the agent and vendor pages work to those numbers
+  const [budgetTouched, setBudgetTouched] = useState<boolean>(saved.budgetTouched ?? false);
   const [tutorial, setTutorial] = useState<Tutorial>(saved.tutorial ?? "done"); // couples who were here before the guide existed are not walked through it
   const [payments, setPayments] = useState<Payment[]>(saved.payments ?? []);
   const [guests, setGuests] = useState<Guest[]>(saved.guests ?? []);
@@ -2384,10 +2606,26 @@ function CoupleApp({ session, onLogout, onSwitchRole }: { session: Session; onLo
 
   const unreadCount = threads.filter((t) => t.unread).length;
 
+  // Any change the couple makes to the budget on purpose
+  const setOwnAllocation = (a: BudgetAllocation) => { setAllocation(a); setBudgetTouched(true); };
+  // A new total: every category moves by the same proportion
+  const editBudget = (n: number) => {
+    if (!plan) return;
+    const keys = Object.keys(allocation) as Category[];
+    const scaled = {} as BudgetAllocation;
+    keys.forEach((k) => { scaled[k] = Math.round((allocation[k] * n) / plan.budget); });
+    const drift = n - keys.reduce((a, k) => a + scaled[k], 0);
+    const largest = keys.reduce((a, k) => (scaled[k] > scaled[a] ? k : a), keys[0]);
+    if (largest) scaled[largest] = Math.max(0, scaled[largest] + drift);
+    setAllocation(scaled);
+    setPlan({ ...plan, budget: n, budgetBand: undefined });
+  };
+  const resetAllocation = () => { if (plan) setAllocation(mlAllocate(plan.budget, plan.guestCount)); setBudgetTouched(false); };
+
   useEffect(() => {
     if (!plan) return;
-    save(phone, { tutorial, plan, tab, allocation, threads, activeThreadId, bookings, agent, payments, guests, deliveries, checklist: [...checklistDone] } satisfies SavedState);
-  }, [phone, tutorial, plan, tab, allocation, threads, activeThreadId, bookings, agent, payments, guests, deliveries, checklistDone]);
+    save(phone, { budgetTouched, tutorial, plan, tab, allocation, threads, activeThreadId, bookings, agent, payments, guests, deliveries, checklist: [...checklistDone] } satisfies SavedState);
+  }, [phone, budgetTouched, tutorial, plan, tab, allocation, threads, activeThreadId, bookings, agent, payments, guests, deliveries, checklistDone]);
 
   // Conversations with messages go to the shared inbox, where the vendor desk can read and answer them.
   useEffect(() => {
@@ -2461,7 +2699,7 @@ function CoupleApp({ session, onLogout, onSwitchRole }: { session: Session; onLo
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             vendor: { id: t.vendor!.id, name: t.vendor!.name, category: t.vendor!.category, city: t.vendor!.city, estCost: t.vendor!.estCost ?? 0 },
-            couple: { names: `${pl.name} & ${pl.partnerName}`, city: pl.location, date: pl.date, guests: pl.guestCount, days: Math.max(1, pl.schedule.length), styles: pl.styles ?? [] },
+            couple: { names: `${pl.name} & ${pl.partnerName}`, city: pl.location, date: pl.date, guests: pl.guestCount, days: Math.max(1, pl.schedule.length), styles: pl.styles ?? [], diet: pl.diet === "veg" ? "veg" : undefined },
             history: t.messages.map((m) => ({ frm: m.from, text: m.text })),
             lastQuote: latestQuote(t.messages)?.amount ?? null, discounted: t.messages.some((m) => m.quote?.discounted),
             fast: !!t.viaAgent && t.messages.length === 1, // many agent enquiries at once: the first reply is written instantly
@@ -2524,7 +2762,7 @@ function CoupleApp({ session, onLogout, onSwitchRole }: { session: Session; onLo
 
   const handleOnboard = (p: WeddingPlan) => {
     setPlan(p);
-    setTutorial("checklist");
+    setTutorial("intro");
     setTab("dashboard");
     setAllocation(mlAllocate(p.budget, p.guestCount));
     setAgent({ objective: defaultObjective(p), result: null, applied: false });
@@ -2538,7 +2776,7 @@ function CoupleApp({ session, onLogout, onSwitchRole }: { session: Session; onLo
     const short = (d: string) => new Date(`${d}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
     const first = days[0].date, last = days[days.length - 1].date;
     const when = isTentative(pl) ? `around ${monthYear(pl.date)}` : first === last ? short(first) : `${short(first)} to ${short(last)}`;
-    return `Hi ${v.name} team, we're ${pl.name} and ${pl.partnerName}. We're planning a ${days.length}-day wedding in ${v.city} (${when}) for about ${pl.guestCount} guests. Are you available on those dates, and could you share a quote for ${CATEGORY_META[v.category].label.toLowerCase()}? Thank you!`;
+    return `Hi ${v.name} team, we're ${pl.name} and ${pl.partnerName}. We're planning a ${days.length}-day wedding in ${v.city} (${when}) for about ${pl.guestCount} guests. Are you available on those dates, and could you share a quote for ${CATEGORY_META[v.category].label.toLowerCase()}?${pl.diet === "veg" && (v.category === "catering" || v.category === "hotels") ? " We need a fully vegetarian menu, so please confirm you can do that." : ""} Thank you!`;
   };
   const threadFor = (v: VendorRef): Thread => ({
     id: `vendor-${v.id}`, vendor: v, sender: v.name, role: `${CATEGORY_META[v.category].label} · ${v.area}, ${v.city}`,
@@ -2586,11 +2824,11 @@ function CoupleApp({ session, onLogout, onSwitchRole }: { session: Session; onLo
       <MobileTopBar plan={plan} />
       <main className="flex-1 overflow-y-auto relative min-h-0">
         {tab === "dashboard" && <DashboardTab plan={plan} allocation={allocation} bookings={bookings} checklistDone={checklistDone} onToggleCheck={toggleCheck}
-          agent={agent} setAgent={setAgent} setAllocation={setAllocation} setTab={setTab} onEditPlan={setPlan} onMessage={messageVendor}
-          threads={threads} onRequestQuotes={requestQuotes} onBook={bookAt} tutorial={tutorial} setTutorial={setTutorial} />}
+          agent={agent} setAgent={setAgent} setAllocation={setOwnAllocation} budgetTouched={budgetTouched} setTab={setTab} onEditPlan={setPlan} onMessage={messageVendor}
+          threads={threads} onRequestQuotes={requestQuotes} onBook={bookAt} tutorial={tutorial} setTutorial={setTutorial} onEditBudget={editBudget} />}
         {tab === "stories"   && <ComingSoonTab icon="❀" title="Success Stories" blurb="Real weddings planned on Partnered." />}
         {tab === "blogs"     && <BlogsTab onBrowseCity={(c) => { setMarketCity(c); setTab("vendors"); }} />}
-        {tab === "budget"    && <BudgetTab plan={plan} allocation={allocation} setAllocation={setAllocation} />}
+        {tab === "budget"    && <BudgetTab plan={plan} allocation={allocation} setAllocation={setOwnAllocation} resetAllocation={resetAllocation} onVendors={() => setTab("vendors")} />}
         {tab === "vendors"   && <VendorsTab plan={plan} cities={cities} city={shownCity} setCity={setMarketCity} bookings={bookings} onToggleBook={toggleBook} onMessage={messageVendor} allocation={allocation} agent={agent} />}
         {tab === "messages"  && <MessagesTab plan={plan} threads={threads} setThreads={setThreads} activeId={activeThreadId} setActiveId={setActiveThreadId} onNavigate={setTab} bookings={bookings} onBookAndPay={bookAndPay} typing={typing} />}
         {tab === "payments"   && <PaymentsTab plan={plan} bookings={bookings} allocation={allocation} payments={payments} setPayments={setPayments} onBrowse={() => setTab("vendors")} customer={{ name: plan.name, phone, email: session.email }} />}

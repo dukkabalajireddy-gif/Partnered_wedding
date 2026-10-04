@@ -209,6 +209,24 @@ def _listing_score(r: dict) -> tuple[int, list[dict]]:
     return round(35 + 60 * earned / possible), factors
 
 
+# Does a food business serve meat? Read from the listing's own tags where OpenStreetMap has them, otherwise from its name.
+_NONVEG = re.compile(r"\b(chicken|mutton|fish|seafood|sea food|non[- ]?veg|nonveg|meat|kebab|kabab|tandoor|egg|prawn|crab|beef|pork|lamb|halal|biryani|biriyani|bbq|grill|steak|nihari|haleem|shawarma)\b", re.I)
+_VEG = re.compile(r"\b(pure[- ]?veg|vegetarian|veg only|jain|sattvic|shuddh|shudh|vaishno|swami|udupi|vegan|bhojanalay|annapoorna|annapurna)\b|(?<!non[- ])(?<!non)\bveg\b", re.I)
+
+
+def food_kind(name: str, diet: str | None = None, cuisine: str | None = None) -> str:
+    """'veg' (pure vegetarian), 'nonveg' (clearly serves meat or fish) or 'unknown' (cannot tell, so ask)."""
+    d = (diet or "").lower()
+    if "vegetarian=only" in d or "vegan=only" in d:
+        return "veg"
+    text = f"{name} {cuisine or ''}"
+    if _NONVEG.search(text):
+        return "nonveg"
+    if _VEG.search(text) or "vegetarian=yes" in d:
+        return "veg"
+    return "unknown"
+
+
 def _int(v) -> int | None:
     """OpenStreetMap values are text, sometimes with a plus sign or a range; keep a plain whole number or nothing."""
     s = str(v or "").strip().replace("+", "")
@@ -239,6 +257,7 @@ def _load_real() -> list[dict]:
             "distance_km": round(_km((bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2, r["lat"], r["lon"]), 1),
             "price_mult": meta["price"], "capacity": 0, "source": "osm",
             "stars": _int(r.get("stars")), "venue": bool(r.get("venue")), "brand": r.get("brand"),
+            "food": food_kind(r["name"], r.get("diet"), r.get("cuisine")) if r["category"] in ("catering", "hotels") else None,
             "listed_capacity": _int(r.get("capacity")), "rooms": _int(r.get("rooms")), "wikidata": bool(r.get("wikidata")),
             "lat": r["lat"], "lon": r["lon"], "phone": r.get("phone"), "website": r.get("website"),
             "email": r.get("email"), "hours": r.get("hours"), "osm_type": r.get("osmType"), "osm_id": r.get("osmId"),
@@ -328,12 +347,16 @@ _USUALLY = {
     "logistics": ["Vendor coordination", "Deliveries", "Day-of crew", "Timeline management"],
 }
 # Stock photos for the cities where we show them. They are representative pictures, not photos of the business.
-IMAGE_CITIES = {"Hyderabad", "Delhi", "Mumbai"}
+IMAGE_CITIES = {"Hyderabad", "Delhi", "Mumbai", "Bengaluru"}
 
 
 def _features(v: dict) -> list[str]:
     """Only things the listing itself says: nothing guessed."""
     out = []
+    if v.get("food") == "veg":
+        out.append("Pure vegetarian")
+    elif v.get("food") == "nonveg":
+        out.append("Serves non-veg")
     if v.get("venue"):
         out.append("Events venue")
     if v.get("stars"):
@@ -379,7 +402,7 @@ def vendor_profile(v: dict, guests: int, days: int) -> dict:
             "estCost": estimate_cost(v, guests, days), "estCostTypical": True,
             "tag": "Listed", "source": "osm",
             "image": (lambda imgs, h: imgs[h % len(imgs)])(_IMAGES[v["category"]], int(hashlib.md5(v["id"].encode()).hexdigest(), 16)) if v["city"] in IMAGE_CITIES else None,
-            "features": _features(v), "usually": _USUALLY.get(v["category"], []), "stars": v.get("stars"),
+            "features": _features(v), "usually": _USUALLY.get(v["category"], []), "stars": v.get("stars"), "food": v.get("food"),
             "description": f"A {kind} in {v['city']}. No customer reviews or published prices yet: message them to ask about availability and a quote.",
             "phone": v["phone"], "email": v["email"], "hours": v["hours"], "website": v["website"],
             "osmUrl": f"https://www.openstreetmap.org/{v['osm_type']}/{v['osm_id']}", "lat": v["lat"], "lon": v["lon"],

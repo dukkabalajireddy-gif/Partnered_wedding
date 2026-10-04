@@ -183,6 +183,7 @@ def build(city: str, elements: list[dict]) -> list[dict]:
             "stars": t.get("stars"), "wikidata": bool(t.get("wikidata") or t.get("wikipedia")),
             "brand": t.get("brand") or t.get("operator"), "capacity": t.get("capacity"), "rooms": t.get("rooms"),
             "venue": t.get("amenity") == "events_venue",
+            "diet": ";".join(f"{k}={v}" for k, v in t.items() if k.startswith("diet:")) or None, "cuisine": t.get("cuisine"),
             "osmType": el["type"], "osmId": el["id"], "_rich": rich,
         })
     out = []

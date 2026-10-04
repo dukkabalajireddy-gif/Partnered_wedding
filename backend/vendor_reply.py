@@ -55,6 +55,7 @@ class CoupleInfo(BaseModel):
     guests: int = 200
     days: int = 1
     styles: list[str] = []
+    diet: str | None = None   # "veg" if the wedding is vegetarian only
 
 
 class ReplyIn(BaseModel):
@@ -102,6 +103,8 @@ def template(req: ReplyIn, intent: str, d: dict) -> str:
     v, c = req.vendor, req.couple
     first = (c.names.split("&")[0] or "there").strip()
     what = INCLUDES.get(v.category, "everything we discussed")
+    if c.diet == "veg" and v.category in ("catering", "hotels"):
+        what += ", and we can do a fully vegetarian menu"
     amt, adv = inr(d["amount"]), inr(round(d["amount"] * d["advancePct"] / 100 / 100) * 100)
     if not d["available"]:
         return f"Hi {first}, thank you for thinking of us. Unfortunately we're already booked around your dates. We'd be happy to recommend someone we trust if that helps."
@@ -131,7 +134,7 @@ def phrase(req: ReplyIn, intent: str, d: dict) -> str | None:
         "quoteValidForDays": d["validDays"],
         "discount": "offered_just_now" if (d["discounted"] and not req.discounted) else ("given_earlier_no_more_available" if req.discounted else "none"),
         "whatIsIncluded": INCLUDES.get(v.category), "coupleNames": c.names, "guests": c.guests, "daysOfCelebration": c.days,
-        "weddingStyles": c.styles,
+        "weddingStyles": c.styles, "menuPreference": "vegetarian only" if c.diet == "veg" else None,
     }
     convo = "\n".join(f"{'Couple' if m.frm == 'me' else 'You'}: {m.text}" for m in req.history[-6:])
     try:

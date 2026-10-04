@@ -47,6 +47,7 @@ class PlanIn(BaseModel):
     sameVenue: str | None = None      # "yes", "no" or "unsure"
     radiusKm: int | None = None
     dateMode: str | None = None       # "exact", "month" or "unsure"
+    diet: str | None = None           # "veg" (vegetarian only), "both" or "unsure"
 
 # How each wedding style nudges the budget towards the categories that make it look and feel that way.
 STYLE_BOOST = {
@@ -67,6 +68,7 @@ class RunIn(BaseModel):
     plan: PlanIn
     objective: str = ""
     completed: list[str] = []  # categories the couple has already finished themselves: the agent leaves them alone
+    allocation: dict[str, int] | None = None  # the category budgets the couple set with their own sliders, if they did
 
 
 def inr(n: float) -> str:
@@ -194,18 +196,22 @@ def score_weights(prefs: dict) -> dict[str, float]:
     return {k: v / t for k, v in w.items()}
 
 
-def score_vendor(v: dict, cost: int, alloc: int, weights: dict) -> tuple[int, dict]:
+def score_vendor(v: dict, cost: int, alloc: int, weights: dict, diet: str | None = None) -> tuple[int, dict]:
     unknown = 0.5  # real listings have no rating, reliability or response data: neutral, not invented
     parts = {
         "price_fit": 1.0 if cost <= alloc else max(0.0, 1 - (cost - alloc) / max(1, alloc)),
+        "veg_fit": 1.0 if (diet == "veg" and v.get("food") == "veg") else (0.5 if diet == "veg" and v.get("food") == "unknown" else unknown),
         "quality": (unknown if v.get("listing_score") is None else (v["listing_score"] - 35) / 60) if v["rating"] is None else min(1.0, max(0.0, (v["rating"] - 3.5) / 1.5)),
         "reliability": unknown if v["reliability"] is None else v["reliability"],
         "premium": unknown if v["premium_look"] is None else v["premium_look"],
         "distance": max(0.0, 1 - v["distance_km"] / 40),
         "response": unknown if v["response_hours"] is None else max(0.0, 1 - v["response_hours"] / 24),
     }
+    veg = parts.pop("veg_fit")
     total = sum(weights[k] * parts[k] for k in parts)
-    return round(total * 100), {k: round(x * 100) for k, x in parts.items()}
+    if diet == "veg" and v.get("category") in ("catering", "hotels") and v.get("food") in ("veg", "unknown"):
+        total += 0.06 * (1.0 if v.get("food") == "veg" else 0.0)  # a confirmed pure-veg kitchen edges ahead
+    return round(min(1.0, total) * 100), {k: round(x * 100) for k, x in parts.items()}
 
 
 def reasons_for(v: dict, cost: int, alloc: int, fit: str) -> list[str]:
@@ -244,10 +250,15 @@ def run_agent(req: RunIn):
     # 2. Allocation
     prefs, used_llm_prefs = read_preferences(req.objective)
     styles = [s for s in plan.styles if s in STYLE_BOOST][:3]
-    alloc = allocate(env["allocatable"], prefs, plan.guestCount, plan.creativeDirector, styles, plan.sameVenue == "no")
+    # If the couple set their own category budgets, the agent works to those numbers, so the vendors it picks
+    # match what they see on the Budget page.
+    own = {k: max(0, int(v)) for k, v in (req.allocation or {}).items() if k in BASE_WEIGHTS}
+    use_own = len(own) == len(BASE_WEIGHTS) and sum(own.values()) > 0
+    alloc = own if use_own else allocate(env["allocatable"], prefs, plan.guestCount, plan.creativeDirector, styles, plan.sameVenue == "no")
     top3 = sorted(alloc.items(), key=lambda kv: -kv[1])[:3]
     log(2, "Allocate category budgets",
-        f"From your goals I read: premium look {round(prefs['premium_look'] * 100)}%, "
+        ("Using the category budgets you set yourself. " if use_own else "")
+        + f"From your goals I read: premium look {round(prefs['premium_look'] * 100)}%, "
         + (f"styles {', '.join(styles)}, " if styles else "")
         + ("two separate venues, " if plan.sameVenue == "no" else "")
         + ("must stay within budget" if prefs["strict_budget"] else "some flexibility on budget")
@@ -258,6 +269,10 @@ def run_agent(req: RunIn):
     skipped = [c for c in LABELS if c in req.completed]  # the couple already did these: do not touch them
     everything = vendors_in_city(plan.location)
     pool = [v for v in everything if v["category"] not in skipped and (not plan.radiusKm or v["distance_km"] <= plan.radiusKm)]
+    # A vegetarian-only wedding never sees a caterer that clearly serves meat or fish
+    left_out = [v for v in pool if plan.diet == "veg" and v.get("food") == "nonveg"]
+    if left_out:
+        pool = [v for v in pool if v not in left_out]
 
     def early_exit(detail: str, summary: str):
         log(3, "Search your vendor database", detail, "warn")
@@ -275,6 +290,7 @@ def run_agent(req: RunIn):
     log(3, "Search your vendor database",
         f"Found {len(pool)} real listings in {plan.location} across {len(cats)} open categories."
         + (f" No listings found yet for {', '.join(LABELS[c] for c in no_listings)}." if no_listings else "")
+        + (f" Left out {len(left_out)} that clearly serve non-veg food, because you chose vegetarian only." if left_out else "")
         + (f" Skipping {', '.join(LABELS[c] for c in skipped)}: you marked {'it' if len(skipped) == 1 else 'them'} done." if skipped else ""))
 
     # 4. External sources
@@ -328,12 +344,12 @@ def run_agent(req: RunIn):
     for cat, rows in candidates.items():
         scored = []
         for r in rows:
-            s, parts = score_vendor(r["v"], r["cost"], alloc.get(cat, 0), weights)
+            s, parts = score_vendor(r["v"], r["cost"], alloc.get(cat, 0), weights, plan.diet)
             v = r["v"]
             scored.append({
                 "id": v["id"], "name": v["name"], "area": v["area"], "category": cat, "tier": v["tier"],
                 "rating": v["rating"], "estCost": r["cost"], "fit": r["fit"], "score": s, "breakdown": parts,
-                "source": v["source"], "rated": v["rating"] is not None, "phone": v.get("phone"),
+                "source": v["source"], "rated": v["rating"] is not None, "phone": v.get("phone"), "food": v.get("food"),
                 "reasons": reasons_for(v, r["cost"], alloc.get(cat, 0), r["fit"]),
             })
         # 8. top 5. If the couple must stay within budget, options that fit always rank above ones that do not.
@@ -357,7 +373,7 @@ def run_agent(req: RunIn):
     facts = {
         "total": inr(env["total"]), "reserve": inr(env["reserve"]), "allocatable": inr(env["allocatable"]),
         "perGuest": inr(env["perGuest"]), "feasibility": env["message"], "city": plan.location, "days": n_days, "weddingStyles": styles, "ceremonyAndReceptionAtSeparateVenues": plan.sameVenue == "no",
-        "dateStillToBeSet": plan.dateMode in ("month", "unsure"),
+        "dateStillToBeSet": plan.dateMode in ("month", "unsure"), "menu": "vegetarian only" if plan.diet == "veg" else None,
         "topPicks": {LABELS[c]: {"name": shortlists[c][0]["name"], "estCost": inr(shortlists[c][0]["estCost"]), "fit": shortlists[c][0]["fit"]} for c in cats if shortlists.get(c)},
         "sumOfTopPicks": inr(top_costs), "topPicksFitBudget": top_costs <= env["allocatable"],
         "categoriesOverAllocation": stretch,

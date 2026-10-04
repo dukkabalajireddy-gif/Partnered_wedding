@@ -1,20 +1,20 @@
 import { useState } from "react";
+import { BLOG_IMAGES } from "./blogImages";
 
 // Blog posts for the Blogs tab. Written as data so a new post is just a new entry.
-// Facts are kept general and checkable; the industry figures cite their source at the foot of the post.
+// Photos are freely licensed pictures from Wikimedia Commons and carry their credit. Industry figures cite their sources.
 
 type Block =
   | { t: "p"; text: string }
   | { t: "h"; text: string }
   | { t: "list"; items: string[] }
-  | { t: "dest"; n: number; name: string; city?: string; blurb: string; season: string }
+  | { t: "dest"; n: number; name: string; city?: string; tagline: string; blurb: string; bestFor: string; season: string; img: string }
+  | { t: "figure"; img: string; caption: string }
   | { t: "story"; names: string; where: string; when: string; blurb: string; takeaway: string }
   | { t: "stat"; items: { value: string; label: string }[] }
   | { t: "sources"; items: { label: string; href: string }[] };
 
-interface Post {
-  id: string; title: string; kicker: string; minutes: number; icon: string; gradient: string; intro: string; body: Block[];
-}
+interface Post { id: string; title: string; kicker: string; minutes: number; cover: string; intro: string; body: Block[]; }
 
 const POSTS: Post[] = [
   {
@@ -22,26 +22,26 @@ const POSTS: Post[] = [
     title: "Top 10 wedding destinations in India",
     kicker: "Destinations",
     minutes: 5,
-    icon: "🏰",
-    gradient: "linear-gradient(135deg, #a8213b, #c08a0c)",
-    intro: "From lake palaces to backwater houseboats, here are ten places couples keep choosing, and what makes each one special.",
+    cover: "udaipur",
+    intro: "Palaces on lakes, forts in the desert, houseboats on quiet backwaters. Ten places couples keep choosing, and who each one suits best.",
     body: [
-      { t: "p", text: "A destination wedding is easier to plan than it sounds, because many of these places already have venues, caterers and decorators who do nothing else. Pick the setting first, then let the season and guest list decide the rest. Seasons below are general guidance, so check local weather for your dates." },
-      { t: "dest", n: 1, name: "Udaipur, Rajasthan", city: "Udaipur", blurb: "The city of lakes. Palace hotels on the water, boat baraats and sunset sangeets make it the most photographed wedding setting in the country.", season: "October to March" },
-      { t: "dest", n: 2, name: "Jaipur, Rajasthan", city: "Jaipur", blurb: "Pink-city forts and havelis with grand courtyards, and a deep bench of experienced wedding vendors. A strong choice for big guest lists.", season: "October to March" },
-      { t: "dest", n: 3, name: "Jodhpur, Rajasthan", city: "Jodhpur", blurb: "Home to Umaid Bhawan Palace, where a famous 2018 celebrity wedding took place. The blue-city skyline and Mehrangarh Fort make a dramatic backdrop.", season: "October to March" },
-      { t: "dest", n: 4, name: "Jaisalmer, Rajasthan", city: "Jaisalmer", blurb: "Golden sandstone and desert camps under open skies. Best for smaller, immersive weddings where guests stay together for a few days.", season: "November to February" },
-      { t: "dest", n: 5, name: "Goa", city: "Goa", blurb: "Beach ceremonies, relaxed pool-side parties and easy flights. Ideal for a laid-back, friends-and-family celebration.", season: "November to February" },
-      { t: "dest", n: 6, name: "Alleppey, Kerala", city: "Alleppey", blurb: "Backwaters, houseboats and resorts surrounded by coconut palms. Quiet, green and very photogenic for intimate weddings.", season: "October to February" },
-      { t: "dest", n: 7, name: "Rishikesh, Uttarakhand", city: "Rishikesh", blurb: "Ceremonies beside the Ganga with evening aarti, yoga mornings and riverside camps. Suits couples who want something spiritual and low-key.", season: "February to April, September to November" },
-      { t: "dest", n: 8, name: "Mussoorie, Uttarakhand", city: "Mussoorie", blurb: "Hill-station weddings with mountain views and cool evenings, within reach of Delhi and Dehradun by road.", season: "March to June, September to November" },
-      { t: "dest", n: 9, name: "Hyderabad, Telangana", city: "Hyderabad", blurb: "Nizam-era palaces, heritage hotels and exceptional food. A good fit when biryani and Hyderabadi hospitality are a priority.", season: "October to February" },
-      { t: "dest", n: 10, name: "Kochi, Kerala", city: "Kochi", blurb: "Heritage hotels in Fort Kochi, church-and-temple traditions side by side and quick access to the backwaters.", season: "October to February" },
+      { t: "p", text: "Many of these places already have venues, caterers and decorators who do nothing but weddings, so a destination wedding is easier to plan than it sounds. Pick the setting first, then let the season and your guest list settle the rest. Seasons are general guidance, so check the weather for your exact dates." },
+      { t: "dest", n: 1, name: "Udaipur, Rajasthan", city: "Udaipur", img: "udaipur", tagline: "Palaces that seem to float on water.", blurb: "Lake Pichola and the City Palace give you a backdrop that needs almost no decorating. Arrive by boat, hold the sangeet on a terrace over the water, and finish with a lake-view dinner.", bestFor: "Grand weddings with a few hundred guests", season: "October to March" },
+      { t: "dest", n: 2, name: "Jaipur, Rajasthan", city: "Jaipur", img: "jaipur", tagline: "Pink-city forts, havelis and a big wedding industry.", blurb: "Courtyards and ramparts around Amer give you royal photographs, and the city has some of the most experienced wedding vendors in the country. Comparing quotes is easy here.", bestFor: "Large guest lists and first-time planners", season: "October to March" },
+      { t: "dest", n: 3, name: "Jodhpur, Rajasthan", city: "Jodhpur", img: "jodhpur", tagline: "A fortress above a blue city.", blurb: "Mehrangarh Fort looms over the old town, and Umaid Bhawan Palace hosted one of the most talked-about weddings of 2018. Expect heavy stone, deep colours and serious drama.", bestFor: "Couples who want a regal, photogenic setting", season: "October to March" },
+      { t: "dest", n: 4, name: "Jaisalmer, Rajasthan", city: "Jaisalmer", img: "jaisalmer", tagline: "Golden sandstone and desert nights.", blurb: "The fort glows at sunset and desert camps sleep your guests under the stars. Cold nights make bonfire sangeets unforgettable. Guests stay together for several days.", bestFor: "Smaller, immersive weddings", season: "November to February" },
+      { t: "dest", n: 5, name: "Goa", city: "Goa", img: "goa", tagline: "Barefoot ceremonies and sunset parties.", blurb: "Palm-lined beaches, easy flights and plenty of resorts. It suits a relaxed celebration where the baraat is a beach walk and the dance floor is the sand. Avoid the monsoon.", bestFor: "Friends-and-family weddings, informal and fun", season: "November to February" },
+      { t: "dest", n: 6, name: "Alleppey, Kerala", city: "Alleppey", img: "alleppey", tagline: "Houseboats, coconut palms and quiet water.", blurb: "Resorts line the backwaters, and guests can float between events on houseboats. Calm, green and very photogenic, it works best when the group is small.", bestFor: "Intimate weddings", season: "October to February" },
+      { t: "dest", n: 7, name: "Rishikesh, Uttarakhand", city: "Rishikesh", img: "rishikesh", tagline: "Ceremonies beside the Ganga.", blurb: "Evening aarti, the Laxman Jhula bridge and riverside camps give a spiritual feel. Check local rules before you plan the menu and bar: alcohol and non-veg food are restricted in parts of the town.", bestFor: "Spiritual, low-key celebrations", season: "February to April, September to November" },
+      { t: "dest", n: 8, name: "Mussoorie, Uttarakhand", city: "Mussoorie", img: "mussoorie", tagline: "Cool air and mountain views.", blurb: "A hill-station wedding with misty mornings and warm lanterns in the evening, reachable by road from Delhi and Dehradun. Keep a covered backup space in case of rain.", bestFor: "Guests who want an escape from the plains", season: "March to June, September to November" },
+      { t: "dest", n: 9, name: "Hyderabad, Telangana", city: "Hyderabad", img: "hyderabad", tagline: "Nizam-era palaces and some of India's best food.", blurb: "Heritage venues around Charminar and old palaces turned hotels, with a wedding feast to match. A strong choice when food is the star of your celebration.", bestFor: "Food-loving families and heritage venues", season: "October to February" },
+      { t: "dest", n: 10, name: "Kochi, Kerala", city: "Kochi", img: "kochi", tagline: "Old-world Fort Kochi by the sea.", blurb: "Heritage hotels, the famous Chinese fishing nets and church-and-temple traditions side by side, with the backwaters an easy drive away.", bestFor: "Mixed-tradition families and heritage lovers", season: "October to February" },
       { t: "h", text: "How to choose" },
       { t: "list", items: [
-        "Guest list size: forts and palaces suit 150+ guests; desert camps and backwater resorts suit smaller groups.",
-        "Travel: count how many guests need flights, and how many nights they will stay. Travel often costs more than the venue.",
-        "Season: peak months book out early and cost more. Shoulder months can save a lot.",
+        "Guest list size: forts and palaces suit 150 or more guests; desert camps and backwater resorts suit smaller groups.",
+        "Travel: count how many guests need flights and how many nights they will stay. Travel often costs more than the venue.",
+        "Menu and rules: if your wedding is vegetarian only, ask venues about their kitchens and local rules early.",
+        "Season: peak months sell out early and cost more. Shoulder months can save a lot.",
         "Local vendors: a city with many established wedding vendors, like Jaipur or Hyderabad, makes comparing quotes easier.",
       ] },
     ],
@@ -51,8 +51,7 @@ const POSTS: Post[] = [
     title: "The wedding industry boom, and how technology is changing it",
     kicker: "Industry",
     minutes: 4,
-    icon: "📈",
-    gradient: "linear-gradient(135deg, #881a30, #5c1020)",
+    cover: "industry",
     intro: "Indian weddings are one of the country's biggest consumer categories, and planning them is still mostly done by phone calls and WhatsApp.",
     body: [
       { t: "stat", items: [
@@ -61,6 +60,7 @@ const POSTS: Post[] = [
         { value: "~₹12 lakh", label: "estimated average spend per wedding" },
       ] },
       { t: "p", text: "Those figures come from a 2024 Jefferies report as covered in the press. It puts India's wedding market at nearly double the size of the United States, though smaller than China, and second only to food and grocery among consumer spending categories. Estimates differ between sources, so read them as a sense of scale rather than an exact count." },
+      { t: "figure", img: "industry", caption: "A decorated mandap. Decor, venue and catering are where most wedding money goes." },
       { t: "h", text: "Why planning is still hard" },
       { t: "list", items: [
         "Fragmented vendors: most photographers, decorators and caterers are small businesses, found through word of mouth.",
@@ -89,8 +89,7 @@ const POSTS: Post[] = [
     title: "Celebrity weddings and what couples can learn from them",
     kicker: "Stories",
     minutes: 4,
-    icon: "💍",
-    gradient: "linear-gradient(135deg, #c08a0c, #9a6a0a)",
+    cover: "celebrity",
     intro: "Five well-known weddings, each with a different style, and one idea from each that works at any budget.",
     body: [
       { t: "story", names: "Virat Kohli and Anushka Sharma", where: "Tuscany, Italy", when: "December 2017",
@@ -119,14 +118,32 @@ const POSTS: Post[] = [
   },
 ];
 
+// A photo with its credit, as a link to the file's page on Wikimedia Commons.
+function Credit({ img, light = false }: { img: string; light?: boolean }) {
+  const i = BLOG_IMAGES[img];
+  if (!i) return null;
+  return (
+    <a href={i.page} target="_blank" rel="noreferrer" className="text-xs underline" style={{ color: light ? "rgba(255,255,255,0.85)" : "#555" }}>
+      Photo: {i.credit} · Wikimedia Commons
+    </a>
+  );
+}
+
 function Article({ post, onBack, onBrowseCity }: { post: Post; onBack: () => void; onBrowseCity: (city: string) => void }) {
+  const cover = BLOG_IMAGES[post.cover];
   return (
     <article className="p-4 sm:p-6 lg:p-8 max-w-3xl mx-auto w-full space-y-5 sm:space-y-6">
       <button onClick={onBack} className="text-base font-medium py-2" style={{ color: "#a8213b" }}>← All blogs</button>
-      <header className="rounded-3xl p-6 sm:p-10 text-white" style={{ background: post.gradient }}>
-        <div className="text-sm uppercase tracking-wider opacity-90">{post.kicker} · {post.minutes} min read</div>
-        <h1 className="text-2xl sm:text-4xl font-medium mt-2 leading-tight">{post.title}</h1>
-        <p className="mt-3 text-base sm:text-lg opacity-95 leading-relaxed">{post.intro}</p>
+
+      <header className="rounded-3xl overflow-hidden relative text-white" style={{ background: "#3a0f1a" }}>
+        {cover && <img src={cover.src} alt="" className="absolute inset-0 w-full h-full object-cover" loading="eager" />}
+        <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(58,15,26,0.35) 0%, rgba(58,15,26,0.92) 100%)" }} />
+        <div className="relative p-6 sm:p-10 pt-28 sm:pt-44">
+          <div className="text-sm uppercase tracking-wider" style={{ color: "#f5d98a" }}>{post.kicker} · {post.minutes} min read</div>
+          <h1 className="text-2xl sm:text-4xl font-medium mt-2 leading-tight">{post.title}</h1>
+          <p className="mt-3 text-base sm:text-lg opacity-95 leading-relaxed">{post.intro}</p>
+          <div className="mt-3"><Credit img={post.cover} light /></div>
+        </div>
       </header>
 
       <div className="bg-white rounded-3xl p-5 sm:p-8 space-y-5" style={{ border: "1px solid #fbe8ec" }}>
@@ -153,18 +170,34 @@ function Article({ post, onBack, onBrowseCity }: { post: Post; onBack: () => voi
                 ))}
               </div>
             );
+            case "figure": return (
+              <figure key={i} className="rounded-2xl overflow-hidden" style={{ border: "1px solid #fbe8ec" }}>
+                <img src={BLOG_IMAGES[b.img]?.src} alt={b.caption} loading="lazy" className="w-full h-56 sm:h-72 object-cover" />
+                <figcaption className="px-4 py-3 text-sm text-gray-700" style={{ background: "#fdf8f0" }}>{b.caption} <Credit img={b.img} /></figcaption>
+              </figure>
+            );
             case "dest": return (
-              <div key={i} className="flex gap-4 rounded-2xl p-4" style={{ background: "#fdf8f0", border: "1px solid #fbe8ec" }}>
-                <div className="w-10 h-10 rounded-full flex items-center justify-center text-base font-semibold shrink-0 text-white" style={{ background: "#a8213b" }}>{b.n}</div>
-                <div className="min-w-0 flex-1">
-                  <h3 className="text-lg font-medium text-gray-800">{b.name}</h3>
-                  <p className="text-base text-gray-700 leading-relaxed mt-1">{b.blurb}</p>
-                  <div className="text-sm text-gray-700 mt-2"><span className="font-medium">Usual season:</span> {b.season}</div>
-                  {b.city && (
-                    <button onClick={() => onBrowseCity(b.city!)} className="mt-3 text-sm font-medium rounded-xl px-4 py-2.5" style={{ color: "#a8213b", border: "1px solid #f5c6d0", background: "#fff" }}>
-                      Browse vendors in {b.city} →
-                    </button>
-                  )}
+              <div key={i} className="rounded-2xl overflow-hidden" style={{ border: "1px solid #fbe8ec", background: "#fff" }}>
+                <div className="relative">
+                  <img src={BLOG_IMAGES[b.img]?.src} alt={`${b.name}`} loading="lazy" className="w-full h-52 sm:h-64 object-cover" style={{ background: "#fdf2f4" }} />
+                  <span className="absolute top-3 left-3 w-10 h-10 rounded-full flex items-center justify-center text-base font-semibold text-white" style={{ background: "#a8213b", boxShadow: "0 2px 6px rgba(0,0,0,0.3)" }}>{b.n}</span>
+                </div>
+                <div className="p-4 sm:p-5 space-y-3">
+                  <div>
+                    <h3 className="text-xl sm:text-2xl font-medium text-gray-800">{b.name}</h3>
+                    <div className="text-base font-medium mt-0.5" style={{ color: "#9a6a0a" }}>{b.tagline}</div>
+                  </div>
+                  <p className="text-base text-gray-800 leading-relaxed">{b.blurb}</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div className="rounded-xl px-3 py-2" style={{ background: "#fdf2f4" }}><div className="text-xs uppercase tracking-wider text-gray-700">Best for</div><div className="text-sm font-medium text-gray-800">{b.bestFor}</div></div>
+                    <div className="rounded-xl px-3 py-2" style={{ background: "#fff7d6" }}><div className="text-xs uppercase tracking-wider text-gray-700">Season</div><div className="text-sm font-medium text-gray-800">{b.season}</div></div>
+                  </div>
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    {b.city
+                      ? <button onClick={() => onBrowseCity(b.city!)} className="text-sm font-medium rounded-xl px-4 py-2.5 min-h-11 text-white" style={{ background: "linear-gradient(135deg, #a8213b, #881a30)" }}>Browse vendors in {b.city} →</button>
+                      : <span />}
+                    <Credit img={b.img} />
+                  </div>
                 </div>
               </div>
             );
@@ -205,17 +238,23 @@ export default function BlogsTab({ onBrowseCity }: { onBrowseCity: (city: string
         <p className="text-sm text-gray-600 mt-1">Ideas, guides and advice for planning your shaadi.</p>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-5">
-        {POSTS.map((p) => (
-          <button key={p.id} onClick={() => setOpenId(p.id)} className="text-left bg-white rounded-2xl overflow-hidden transition-all hover:shadow-md flex flex-col" style={{ border: "1px solid #fbe8ec" }}>
-            <div className="h-28 flex items-center justify-center text-5xl" style={{ background: p.gradient }} aria-hidden="true">{p.icon}</div>
-            <div className="p-5 flex-1 flex flex-col">
-              <div className="text-xs font-semibold uppercase tracking-wider" style={{ color: "#a8213b" }}>{p.kicker} · {p.minutes} min read</div>
-              <h2 className="text-xl font-medium text-gray-800 mt-1 leading-snug">{p.title}</h2>
-              <p className="text-sm text-gray-700 mt-2 leading-relaxed flex-1">{p.intro}</p>
-              <div className="mt-4 text-sm font-medium" style={{ color: "#a8213b" }}>Read more →</div>
-            </div>
-          </button>
-        ))}
+        {POSTS.map((p) => {
+          const c = BLOG_IMAGES[p.cover];
+          return (
+            <button key={p.id} onClick={() => setOpenId(p.id)} className="text-left bg-white rounded-2xl overflow-hidden transition-all hover:shadow-md flex flex-col" style={{ border: "1px solid #fbe8ec" }}>
+              <div className="relative h-44" style={{ background: "#fdf2f4" }}>
+                {c && <img src={c.small} alt="" loading="lazy" className="w-full h-full object-cover" />}
+                <span className="absolute top-3 left-3 text-xs font-semibold uppercase tracking-wider px-2.5 py-1 rounded-full" style={{ background: "rgba(255,255,255,0.94)", color: "#a8213b" }}>{p.kicker}</span>
+              </div>
+              <div className="p-5 flex-1 flex flex-col">
+                <div className="text-xs font-semibold uppercase tracking-wider text-gray-700">{p.minutes} min read</div>
+                <h2 className="text-xl font-medium text-gray-800 mt-1 leading-snug">{p.title}</h2>
+                <p className="text-sm text-gray-700 mt-2 leading-relaxed flex-1">{p.intro}</p>
+                <div className="mt-4 text-sm font-medium" style={{ color: "#a8213b" }}>Read more →</div>
+              </div>
+            </button>
+          );
+        })}
       </div>
     </div>
   );
